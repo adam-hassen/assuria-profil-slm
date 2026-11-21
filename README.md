@@ -147,3 +147,39 @@ python3 generer_conversations.py --profils ../assuria-projet/data/objectif1/prof
 Les profils viennent du dépôt du groupe : cloner [assuria-projet](https://github.com/adam-hassen/assuria-projet) à côté de ce dépôt.
 
 Graine fixe : les mêmes conversations à chaque fois.
+
+## Application de démonstration
+
+Une interface où l'on parle comme un client : l'agent répond, la fiche se remplit en direct, puis il propose les offres.
+
+```
+Message du client
+   → petit modèle (Ollama)     : met à jour la fiche JSON (affichée à droite)
+   → code                      : nettoie la fiche, cherche la prochaine information manquante
+   → gros LLM (Ollama)         : pose la question suivante, naturellement
+   → fiche complète            : recherche des offres (Neon ou fichiers du projet), prix estimé, recommandation du gros LLM
+```
+
+| Fichier | Rôle |
+| --- | --- |
+| `app/app.py` | L'interface Streamlit (chat à gauche, fiche à droite, choix des modèles dans la barre latérale) |
+| `app/agent.py` | Le petit modèle extrait la fiche, le gros LLM pose les questions et explique la recommandation |
+| `app/offres.py` | Recherche des offres et estimation du prix (prix de base × coefficients du simulateur du projet) |
+
+### Lancer
+
+```bash
+ollama pull qwen2.5:1.5b      # petit modèle de base (avant fine-tuning)
+ollama pull qwen3:8b          # gros LLM
+pip install -r app/requirements.txt
+streamlit run app/app.py
+```
+
+Données des offres : créer un fichier `.env` à la racine avec `NEON_DATABASE_URL=postgresql://...` pour lire la base
+Neon, ou cloner [assuria-projet](https://github.com/adam-hassen/assuria-projet) à côté de ce dépôt. Le fichier `.env`
+n'est jamais envoyé sur GitHub.
+
+Pour passer au modèle fine-tuné : le mettre dans Ollama (`vers_ollama.sh`) puis le choisir dans la barre latérale.
+
+Limites : les prix sont des estimations (prix de base de l'offre × coefficients du profil), pas des devis ; la zone n'est
+connue que pour les villes présentes dans la table des profils.

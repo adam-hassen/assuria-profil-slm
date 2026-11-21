@@ -3,3 +3,6 @@ resultats/*/reponses.jsonl
 __pycache__/
 *.gguf
 llama.cpp/
+.env
+.venv/
+.venv-*/
