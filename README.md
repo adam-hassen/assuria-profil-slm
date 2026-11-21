@@ -120,7 +120,16 @@ python3 evaluer.py --backend ollama --modele <son_modele> --nom ismail
 python3 evaluer.py --comparer
 ```
 
-Ajouter `--n 50` pour un essai rapide sur 50 conversations.
+Ajouter `--n 50` pour un essai rapide sur 50 conversations (utiliser le même `--n` pour tous les modèles comparés).
+
+Pour obtenir le rapport de comparaison (tableaux, graphiques, exactitude par champ, exemples d'erreurs) :
+
+```bash
+python3 rapport.py
+open resultats/rapport_benchmark.html
+```
+
+Le même contenu est écrit en Markdown dans `resultats/rapport_benchmark.md`, pour le reprendre dans le rapport écrit.
 
 | Mesure | Sens |
 | --- | --- |

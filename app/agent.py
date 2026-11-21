@@ -58,11 +58,12 @@ On te donne le dernier message du client et la question que tu dois poser mainte
 N'écris que le message destiné au client."""
 
 CONSIGNE_RECOMMANDATION = """Tu es un conseiller en assurance auto et moto. Tu écris en français, sans dire bonjour.
-On te donne la fiche du client et les offres trouvées dans notre base, déjà classées.
-En 5 à 7 phrases : présente la première offre comme recommandation (assureur, produit, prix estimé par mois, pourquoi elle
-correspond : budget, formule, garanties), puis cite brièvement les deux suivantes comme alternatives.
-N'utilise QUE les offres et les chiffres donnés. Termine en rappelant que les prix sont des estimations et qu'un devis
-auprès de l'assureur est nécessaire. Pas de liste à puces, pas de titre."""
+On te donne la formule choisie par le client et les offres trouvées dans notre base, déjà classées.
+En 4 à 6 phrases : recommande la première offre (assureur, produit, prix estimé par mois, dans le budget ou non), puis cite
+brièvement les deux suivantes comme alternatives, avec leur prix.
+Règles strictes : n'utilise QUE les informations données ; ne cite une garantie que si elle figure dans la liste « garanties »
+de cette offre ; ne parle jamais de franchise ni de remise ; recopie les prix exactement. Termine en rappelant que les prix
+sont des estimations et qu'un devis auprès de l'assureur est nécessaire. Pas de liste à puces, pas de titre."""
 
 
 # --------------------------------------------------------------------------- outils texte
@@ -235,7 +236,21 @@ BORNES = {"age": (14, 99), "annees_permis": (0, 70), "annees_assure_total": (0, 
           "sinistres_responsables_36_mois": (0, 10), "sinistres_non_responsables_36_mois": (0, 10)}
 
 
-def nettoyer(brut: dict, texte_client: str) -> dict:
+# mots qui doivent accompagner un nombre dans le même message du client pour qu'il serve à cette case
+INDICES = {"age": r"\bans?\b|age|ne en|\b(19|20)\d\d\b", "kilometrage_annuel": r"km|kilom",
+           "budget_mensuel_max": r"€|euro|eur\b|par mois|/mois|budget|£|chf|livre", "annees_permis": r"permis|depuis|obtenu",
+           "annee_mise_en_circulation": r"de (19|20)\d\d|circulation|date|annee", "annees_assure_total": r"assure|depuis"}
+
+
+def nombre_soutenu(champ: str, v: int, messages: list[str]) -> bool:
+    for m in messages:
+        s = simple(m)
+        if (v in nombres(s) or ANNEE - v in nombres(s)) and re.search(INDICES.get(champ, r"."), s):
+            return True
+    return False
+
+
+def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -> dict:
     """Garde une valeur seulement si elle est autorisée, plausible, et présente dans ce que le client a écrit."""
     client = simple(texte_client)
     chiffres = set(nombres(client))
@@ -254,6 +269,8 @@ def nettoyer(brut: dict, texte_client: str) -> dict:
                 # un nombre doit apparaître dans les messages du client (ou s'en déduire pour les années)
                 if not lo <= v <= hi or (v not in chiffres and (ANNEE - v) not in chiffres and v > 5):
                     continue
+                if messages is not None and v > 5 and not nombre_soutenu(c, v, messages):
+                    continue  # le nombre existe, mais le client parlait d'autre chose
             elif t == "booléen":
                 v = v if isinstance(v, bool) else simple(v) in ("true", "oui", "vrai", "1")
             elif c in VALEURS:
@@ -344,7 +361,8 @@ class Conversation:
         except Exception as e:  # le conseiller continue avec les règles seules
             erreur = str(e)
         duree = time.perf_counter() - t0
-        propose = nettoyer(lire_json(brut), self.texte_client())
+        propose = nettoyer(lire_json(brut), self.texte_client(),
+                           [m["content"] for m in self.historique if m["role"] == "user"])
         for c, v in propose.items():
             self.fiche[c] = v
         # 2. la réponse à la question posée, lue directement
@@ -380,7 +398,9 @@ class Conversation:
             prevue = f"Quels sont la marque et le modèle de votre {'moto' if self.fiche['type_vehicule'] == 'moto' else 'voiture'} ?"
         # « je n'ai pas compris » seulement si le client a vraiment tenté de répondre (pas pour un simple bonjour)
         salutation = re.search(r"\b(bonjour|salut|bonsoir|hello|devis|offre|assurance|aide)\b", simple(message))
-        if relance and not salutation:
+        if relance and suivante == "kilometrage_annuel" and any(n > 150000 for n in nombres(simple(message))):
+            prevue = "Ce kilométrage me paraît très élevé pour une année. " + prevue
+        elif relance and not salutation:
             prevue = "Je n'ai pas bien saisi votre réponse. " + prevue
         if os.environ.get("QUESTIONS_LLM", "1") == "0":
             return prevue
@@ -399,9 +419,12 @@ class Conversation:
         return texte if cadre else prevue
 
     def recommandation(self, offres: list[dict]):
-        connu = {c: v for c, v in self.fiche.items() if v is not None}
+        resume = [{"rang": i + 1, "assureur": o["assureur"], "produit": o["produit"],
+                   "prix_mensuel_estime": f"{o['prix_mensuel_estime_eur']:.2f} €".replace(".", ","),
+                   "dans_le_budget": o["dans_le_budget"], "garanties": o["garanties"]} for i, o in enumerate(offres[:3])]
+        client = {"formule": self.fiche.get("formule_souhaitee"), "budget_par_mois": self.fiche.get("budget_mensuel_max")}
         return ollama_chat(self.llm, [
             {"role": "system", "content": CONSIGNE_RECOMMANDATION},
-            {"role": "user", "content": f"Fiche du client : {json.dumps(connu, ensure_ascii=False)}\n\n"
-                                        f"Offres (déjà classées) : {json.dumps(offres[:3], ensure_ascii=False)}"}],
-            stream=True, options={"temperature": 0.3})
+            {"role": "user", "content": f"Client : {json.dumps(client, ensure_ascii=False)}\n\n"
+                                        f"Offres (déjà classées) : {json.dumps(resume, ensure_ascii=False)}"}],
+            stream=True, options={"temperature": 0})

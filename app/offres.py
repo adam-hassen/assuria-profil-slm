@@ -60,8 +60,14 @@ def zone_de(commune: str | None) -> str | None:
     if not commune:
         return None
     villes = table("profils", "commune, type_zone").drop_duplicates("commune")
-    m = villes[villes.commune.str.lower() == commune.strip().lower()]
+    m = trouver_ville(villes, commune)
     return None if m.empty else m.type_zone.iloc[0]
+
+
+def trouver_ville(villes: pd.DataFrame, commune: str) -> pd.DataFrame:
+    c = commune.strip().lower()
+    m = villes[villes.commune.str.lower() == c]
+    return m if not m.empty else villes[villes.commune.str.lower().str.startswith(c + " ")]
 
 
 def deduire(quoi: str, valeur: str):
@@ -69,7 +75,7 @@ def deduire(quoi: str, valeur: str):
     try:
         if quoi == "pays":
             villes = table("profils", "commune, pays_residence").drop_duplicates("commune")
-            m = villes[villes.commune.str.lower() == valeur.strip().lower()]
+            m = trouver_ville(villes, valeur)
             return None if m.empty else m.pays_residence.iloc[0]
         if quoi == "type":
             modeles = table("profils", "marque_modele, type_vehicule").drop_duplicates("marque_modele")
@@ -112,6 +118,13 @@ def coefficients(fiche: dict, type_v: str) -> dict:
     return {k: round(v, 3) for k, v in c.items()}
 
 
+# garanties comprises dans chaque formule (les autres garanties du document sont des options d'autres formules)
+DANS_FORMULE = {
+    "tiers": {"responsabilite_civile", "assistance", "protection_conducteur", "protection_juridique"},
+    "tiers_plus": {"responsabilite_civile", "assistance", "protection_conducteur", "protection_juridique", "vol", "incendie",
+                   "bris_de_glace", "catastrophes_naturelles"},
+}
+
 # --------------------------------------------------------------------------- recherche
 def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
     """Retourne (offres classées, coefficients appliqués, message éventuel)."""
@@ -139,7 +152,9 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
     for r in choix.itertuples():
         mensuel = round(r.prix_base_annuel * total / 12, 2)
         o = offres.loc[r.id_offre] if r.id_offre in offres.index else None
-        garanties = [g[2:].replace("_", " ") for g in offres.columns if g.startswith("g_") and o is not None and bool(o[g])]
+        permises = DANS_FORMULE.get(r.formule)
+        garanties = [g[2:].replace("_", " ") for g in offres.columns
+                     if g.startswith("g_") and o is not None and bool(o[g]) and (permises is None or g[2:] in permises)]
         resultats.append({
             "assureur": r.assureur, "produit": r.produit, "formule": r.formule, "prix_mensuel_estime_eur": mensuel,
             "dans_le_budget": None if budget_eur is None else mensuel <= budget_eur,
