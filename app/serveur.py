@@ -88,7 +88,7 @@ def suite_de_conversation(c: agent.Conversation, suite: dict, texte: str, avant=
             yield ligne({"t": "erreur", "v": f"Impossible de lire les offres ({err.__class__.__name__}). Vérifiez la connexion à la base."})
             yield ligne({"t": "fin"})
             return
-        yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info})
+        yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info if trouvees else ""})
         if trouvees:
             complet = ""
             try:

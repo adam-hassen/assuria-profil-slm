@@ -378,6 +378,7 @@ function valeur(c, v) {
   if (c === "kilometrage_annuel") return `${nf.format(v)} km / an`;
   if (c === "budget_mensuel_max") return `${nf.format(v)} ${SYMBOLE[fiche.devise_budget] || fiche.devise_budget || "€"} / mois`;
   if (c === "type_permis") return `Permis ${v}`;
+  if (c === "commune") return String(v).replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
   return LIBELLES[v] || String(v);
 }
 

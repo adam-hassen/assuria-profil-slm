@@ -122,10 +122,13 @@ def coefficients(fiche: dict, type_v: str) -> dict:
     return {k: round(v, 3) for k, v in c.items()}
 
 
+# la formule « intermédiaire » s'appelle tiers_plus dans la fiche et intermediaire dans les tables d'offres
+FORMULE_TABLE = {"tiers_plus": "intermediaire"}
+
 # garanties comprises dans chaque formule (les autres garanties du document sont des options d'autres formules)
 DANS_FORMULE = {
     "tiers": {"responsabilite_civile", "assistance", "protection_conducteur", "protection_juridique"},
-    "tiers_plus": {"responsabilite_civile", "assistance", "protection_conducteur", "protection_juridique", "vol", "incendie",
+    "intermediaire": {"responsabilite_civile", "assistance", "protection_conducteur", "protection_juridique", "vol", "incendie",
                    "bris_de_glace", "catastrophes_naturelles"},
 }
 
@@ -134,12 +137,13 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
     """Retourne (offres classées, coefficients appliqués, message éventuel)."""
     type_v = fiche.get("type_vehicule") or "auto"
     pays, formule = fiche.get("pays_residence"), fiche.get("formule_souhaitee") or "tous_risques"
+    formule = FORMULE_TABLE.get(formule, formule)
     if (fiche.get("sinistres_responsables_36_mois") or 0) >= 3:
         return [], {}, "Avec 3 sinistres responsables ou plus en 3 ans, il faut s'adresser à un assureur spécialisé."
     prix = table("prix_base")
     choix = prix[(prix.pays == pays) & (prix.type == type_v) & (prix.formule == formule)]
     message = ""
-    if choix.empty:
+    if choix.empty and pays != "France":
         choix = prix[(prix.pays == "France") & (prix.type == type_v) & (prix.formule == formule)]
         message = f"Pas d'offre {type_v} en base pour « {pays} » : offres françaises affichées à titre d'exemple."
     if coef_bonus_malus(fiche) <= 1.0:  # les produits réservés aux conducteurs malussés ne concernent pas ce client
@@ -160,7 +164,7 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
         garanties = [g[2:].replace("_", " ") for g in offres.columns
                      if g.startswith("g_") and o is not None and bool(o[g]) and (permises is None or g[2:] in permises)]
         resultats.append({
-            "assureur": r.assureur, "produit": r.produit, "formule": r.formule, "prix_mensuel_estime_eur": mensuel,
+            "assureur": r.assureur, "produit": r.produit, "formule": "tiers_plus" if r.formule == "intermediaire" else r.formule, "prix_mensuel_estime_eur": mensuel,
             "dans_le_budget": None if budget_eur is None else mensuel <= budget_eur,
             "garanties": garanties[:8],
             "franchise_min_eur": None if o is None or pd.isna(o.franchise_min_eur) else float(o.franchise_min_eur),
