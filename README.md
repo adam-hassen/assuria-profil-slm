@@ -150,36 +150,45 @@ Graine fixe : les mêmes conversations à chaque fois.
 
 ## Application de démonstration
 
-Une interface où l'on parle comme un client : l'agent répond, la fiche se remplit en direct, puis il propose les offres.
+Une page web où l'on parle comme un client : le conseiller pose ses questions une par une, la carte « Votre profil » se
+remplit en direct, puis les offres de la base sont proposées avec un prix estimé et une recommandation.
 
 ```
 Message du client
-   → petit modèle (Ollama)     : met à jour la fiche JSON (affichée à droite)
-   → code                      : nettoie la fiche, cherche la prochaine information manquante
-   → gros LLM (Ollama)         : pose la question suivante, naturellement
-   → fiche complète            : recherche des offres (Neon ou fichiers du projet), prix estimé, recommandation du gros LLM
+   → petit modèle (Ollama)  : propose la fiche JSON à partir de toute la conversation
+   → code                   : garde seulement les valeurs autorisées et présentes dans ce qu'a dit le client,
+                              lit aussi directement la réponse à la question posée, choisit la question suivante
+   → gros LLM (Ollama)      : formule la question (sinon la question prévue est utilisée telle quelle)
+   → fiche complète         : recherche des offres (Neon ou fichiers du projet), prix estimé, recommandation du gros LLM
 ```
 
 | Fichier | Rôle |
 | --- | --- |
-| `app/app.py` | L'interface Streamlit (chat à gauche, fiche à droite, choix des modèles dans la barre latérale) |
-| `app/agent.py` | Le petit modèle extrait la fiche, le gros LLM pose les questions et explique la recommandation |
+| `app/serveur.py` | Serveur FastAPI : la page web et l'API du conseiller (réponses envoyées au fil de l'eau) |
+| `app/static/index.html` | La page : conversation, réponses rapides, carte « Votre profil », cartes des offres |
+| `app/agent.py` | Le conseiller : petit modèle pour la fiche, règles de lecture des réponses, questions, gros LLM |
 | `app/offres.py` | Recherche des offres et estimation du prix (prix de base × coefficients du simulateur du projet) |
 
 ### Lancer
 
 ```bash
-ollama pull qwen2.5:1.5b      # petit modèle de base (avant fine-tuning)
-ollama pull qwen3:8b          # gros LLM
+ollama pull qwen2.5:1.5b
+ollama pull qwen3:8b
 pip install -r app/requirements.txt
-streamlit run app/app.py
+uvicorn app.serveur:app --port 8000
 ```
 
-Données des offres : créer un fichier `.env` à la racine avec `NEON_DATABASE_URL=postgresql://...` pour lire la base
-Neon, ou cloner [assuria-projet](https://github.com/adam-hassen/assuria-projet) à côté de ce dépôt. Le fichier `.env`
-n'est jamais envoyé sur GitHub.
+Puis ouvrir http://localhost:8000. Avec http://localhost:8000/?demo, un encadré montre à chaque tour ce que le petit
+modèle a répondu, ce qui a été retenu et le temps mis : utile pour comparer le modèle de base et le modèle fine-tuné.
 
-Pour passer au modèle fine-tuné : le mettre dans Ollama (`vers_ollama.sh`) puis le choisir dans la barre latérale.
+Réglages dans le fichier `.env` à la racine (jamais envoyé sur GitHub) :
+
+```
+NEON_DATABASE_URL=postgresql://...     base des offres (sinon : dépôt assuria-projet cloné à côté)
+SLM_MODEL=qwen2.5:1.5b                 petit modèle ; plus tard le modèle fine-tuné (ex. assuria-profil)
+LLM_MODEL=qwen3:8b                     gros LLM
+QUESTIONS_LLM=1                        0 pour poser les questions prévues sans passer par le gros LLM (plus rapide)
+```
 
 Limites : les prix sont des estimations (prix de base de l'offre × coefficients du profil), pas des devis ; la zone n'est
 connue que pour les villes présentes dans la table des profils.

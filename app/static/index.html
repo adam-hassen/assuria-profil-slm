@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AssurIA — Simulation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap">
+<style>
+  /* Mise en page : en-tête, conversation à gauche, carte « Votre profil » fixe à droite */
+  :root {
+    --fond: #eef2f4;
+    --carte: #ffffff;
+    --encre: #13232b;
+    --doux: #5d6d75;
+    --trait: #dde4e8;
+    --accent: #0b5563;
+    --accent-clair: #e3f0f1;
+    --client: #0b5563;
+    --ok: #1f7a4d;
+    --ok-fond: #e5f4ec;
+    --alerte: #9a5b00;
+    --alerte-fond: #fbf0dc;
+    --ombre: 0 1px 2px rgba(19, 35, 43, .06), 0 8px 24px rgba(19, 35, 43, .06);
+    --rayon: 14px;
+    --police: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--fond); color: var(--encre); font-family: var(--police); font-size: 15px; line-height: 1.5; }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header { background: var(--carte); border-bottom: 1px solid var(--trait); }
+  .barre { max-width: 1240px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 14px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: -.01em; }
+  .logo-marque { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+  .logo-marque svg { width: 18px; height: 18px; }
+  .sous-titre { color: var(--doux); font-size: 14px; padding-left: 14px; border-left: 1px solid var(--trait); }
+  .espace { flex: 1; }
+  .bouton-sec { background: transparent; border: 1px solid var(--trait); color: var(--encre); border-radius: 999px; padding: 7px 16px; font-weight: 500; font-size: 14px; }
+  .bouton-sec:hover { border-color: var(--accent); color: var(--accent); }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 24px; height: calc(100% - 63px); }
+  .panneau { background: var(--carte); border-radius: var(--rayon); box-shadow: var(--ombre); min-height: 0; }
+
+  /* Conversation */
+  .chat { display: flex; flex-direction: column; overflow: hidden; }
+  .fil { flex: 1; overflow-y: auto; padding: 24px 24px 8px; display: flex; flex-direction: column; gap: 14px; scroll-behavior: smooth; }
+  .bulle { max-width: 82%; padding: 11px 15px; border-radius: 16px; white-space: pre-wrap; animation: entree .25s ease-out both; }
+  .conseiller { align-self: flex-start; background: #f2f5f6; border-top-left-radius: 4px; }
+  .client { align-self: flex-end; background: var(--client); color: #fff; border-top-right-radius: 4px; }
+  .ligne-conseiller { display: flex; gap: 10px; align-items: flex-start; }
+  .avatar { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-clair); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+  .ecrit { display: inline-flex; gap: 4px; padding: 14px 16px; }
+  .ecrit i { width: 6px; height: 6px; border-radius: 50%; background: var(--doux); opacity: .4; animation: point 1s infinite; }
+  .ecrit i:nth-child(2) { animation-delay: .15s; } .ecrit i:nth-child(3) { animation-delay: .3s; }
+  .etape { align-self: center; font-size: 12.5px; color: var(--doux); }
+  .erreur { align-self: stretch; background: var(--alerte-fond); color: var(--alerte); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 10px; min-height: 8px; }
+  .puce { border: 1px solid var(--accent); color: var(--accent); background: var(--carte); border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 500; }
+  .puce:hover { background: var(--accent-clair); }
+  .saisie { display: flex; gap: 10px; padding: 14px 18px 18px; border-top: 1px solid var(--trait); }
+  .saisie input { flex: 1; min-width: 0; border: 1px solid var(--trait); border-radius: 999px; padding: 12px 18px; font: inherit; color: var(--encre); background: #fbfcfc; }
+  .saisie input:focus { outline: none; border-color: var(--accent); background: #fff; }
+  .envoyer { border: none; background: var(--accent); color: #fff; border-radius: 999px; padding: 0 22px; font-weight: 600; }
+  .envoyer:disabled { opacity: .45; cursor: default; }
+
+  /* Offres */
+  .offres { align-self: stretch; display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 12px; margin: 4px 0 4px 40px; }
+  .offre { border: 1px solid var(--trait); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; animation: entree .3s ease-out both; }
+  .offre.premiere { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .reco { align-self: flex-start; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: var(--accent-clair); border-radius: 999px; padding: 2px 9px; }
+  .assureur { font-weight: 700; font-size: 15.5px; line-height: 1.25; }
+  .produit { color: var(--doux); font-size: 13.5px; margin-top: -6px; }
+  .prix { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .prix small { font-size: 13px; font-weight: 500; color: var(--doux); }
+  .budget { align-self: flex-start; font-size: 12.5px; font-weight: 600; border-radius: 6px; padding: 2px 8px; }
+  .budget.oui { background: var(--ok-fond); color: var(--ok); }
+  .budget.non { background: var(--alerte-fond); color: var(--alerte); }
+  .garanties { display: flex; flex-wrap: wrap; gap: 4px; }
+  .garanties span { font-size: 12px; background: #f2f5f6; border-radius: 6px; padding: 2px 7px; }
+  .offre a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; margin-top: auto; }
+  .offre a:hover { text-decoration: underline; }
+  details.calcul { margin-left: 40px; font-size: 13px; color: var(--doux); }
+  details.calcul summary { cursor: pointer; }
+
+  /* Profil */
+  .profil { padding: 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+  .profil-tete { display: flex; align-items: center; gap: 16px; }
+  .anneau { --p: 0; width: 64px; height: 64px; border-radius: 50%; flex: none; display: grid; place-items: center;
+            background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--accent-clair) 0); transition: --p .4s; }
+  .anneau span { width: 50px; height: 50px; border-radius: 50%; background: var(--carte); display: grid; place-items: center; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .profil h2 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
+  .profil-tete p { margin: 2px 0 0; color: var(--doux); font-size: 13.5px; }
+  .groupe h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--doux); }
+  .rang { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 8px; font-size: 14px; transition: background .6s; }
+  .rang .libelle { color: var(--doux); }
+  .rang .valeur { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+  .rang .vide { color: #a8b4ba; font-weight: 400; }
+  .rang.en-cours { background: var(--accent-clair); }
+  .rang.en-cours .vide { color: var(--accent); font-weight: 500; }
+  .rang.nouveau { background: var(--ok-fond); }
+  .note { font-size: 12.5px; color: var(--doux); border-top: 1px solid var(--trait); padding-top: 12px; margin: 0; }
+
+  .demo { border: 1px dashed var(--trait); border-radius: 10px; padding: 12px; font-size: 13px; }
+  .demo h3 { margin: 0 0 6px; font-size: 13px; }
+  .demo pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; background: #f6f8f9; border-radius: 6px; padding: 8px; font-size: 12px; max-height: 220px; overflow: auto; }
+
+  @keyframes entree { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes point { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } .fil { scroll-behavior: auto; } }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; height: auto; padding: 16px; }
+    .chat { height: 72vh; }
+    .sous-titre { display: none; }
+    .offres, details.calcul { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="barre">
+    <div class="logo">
+      <span class="logo-marque" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5C8 19.3 5 15.5 5 11V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+      </span>
+      AssurIA
+    </div>
+    <div class="sous-titre">Simulation d'assurance auto et moto</div>
+    <div class="espace"></div>
+    <button class="bouton-sec" id="nouvelle" type="button">Nouvelle simulation</button>
+  </div>
+</header>
+
+<main>
+  <section class="panneau chat" aria-label="Conversation">
+    <div class="fil" id="fil" aria-live="polite"></div>
+    <div class="suggestions" id="suggestions"></div>
+    <form class="saisie" id="formulaire">
+      <input id="saisie" autocomplete="off" placeholder="Écrivez votre réponse…" aria-label="Votre message">
+      <button class="envoyer" id="envoyer" type="submit">Envoyer</button>
+    </form>
+  </section>
+
+  <aside class="panneau profil" aria-label="Votre profil">
+    <div class="profil-tete">
+      <div class="anneau" id="anneau"><span id="pourcent">0 %</span></div>
+      <div>
+        <h2>Votre profil</h2>
+        <p id="avancement">0 information sur 15</p>
+      </div>
+    </div>
+    <div id="groupes"></div>
+    <p class="note">Les prix proposés sont des estimations calculées à partir des offres réelles de notre base. Seul un devis de l'assureur fait foi.</p>
+    <div class="demo" id="demo" hidden>
+      <h3>Coulisses (mode démo)</h3>
+      <div id="demo-modeles"></div>
+      <div id="demo-tour"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+const GROUPES = [
+  ["Véhicule", [["type_vehicule", "Type"], ["marque_modele", "Modèle"], ["annee_mise_en_circulation", "Année", true], ["energie", "Énergie", true]]],
+  ["Conducteur", [["age", "Âge"], ["commune", "Ville"], ["pays_residence", "Pays"]]],
+  ["Permis et antécédents", [["type_permis", "Permis"], ["annees_permis", "Ancienneté du permis"], ["deja_assure", "Déjà assuré"],
+                             ["bonus_malus", "Bonus-malus"], ["sinistres_responsables_36_mois", "Sinistres responsables (3 ans)"]]],
+  ["Utilisation", [["usage", "Usage"], ["kilometrage_annuel", "Kilométrage"], ["stationnement_nuit", "Stationnement la nuit"]]],
+  ["Couverture", [["formule_souhaitee", "Formule"], ["budget_mensuel_max", "Budget maximum"]]],
+];
+const LIBELLES = {
+  auto: "Voiture", moto: "Moto", prive: "Privé", prive_trajet_travail: "Privé et trajet travail", professionnel: "Professionnel",
+  loisirs: "Loisirs", vtc: "VTC", garage_ferme: "Garage fermé", parking_prive: "Parking privé", voie_publique: "Dans la rue",
+  tiers: "Au tiers", tiers_plus: "Intermédiaire", tous_risques: "Tous risques", essence: "Essence", diesel: "Diesel",
+  hybride: "Hybride", electrique: "Électrique",
+};
+const SUGGESTIONS = {
+  type_vehicule: ["Une voiture", "Une moto"],
+  deja_assure: ["Oui", "Non, jamais"],
+  sinistres_responsables_36_mois: ["Aucun sinistre", "1 sinistre responsable"],
+  usage: ["Privé", "Trajet travail", "Professionnel"],
+  stationnement_nuit: ["Garage fermé", "Parking privé", "Dans la rue"],
+  formule_souhaitee: ["Au tiers", "Intermédiaire", "Tous risques"],
+  type_permis: ["Permis B", "Permis A", "Permis A2"],
+};
+const nf = new Intl.NumberFormat("fr-FR");
+const prixFmt = new Intl.NumberFormat("fr-FR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const DEMO = new URLSearchParams(location.search).has("demo");
+let id = null, fiche = {}, demandee = null, occupe = false;
+
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, texte) => { const e = document.createElement(tag); if (cls) e.className = cls; if (texte != null) e.textContent = texte; return e; };
+
+function valeur(c, v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "boolean") return v ? "Oui" : "Non";
+  if (c === "age") return `${v} ans`;
+  if (c === "annees_permis") return v === 0 ? "Moins d'un an" : `${v} an${v > 1 ? "s" : ""}`;
+  if (c === "kilometrage_annuel") return `${nf.format(v)} km par an`;
+  if (c === "budget_mensuel_max") return `${nf.format(v)} ${({EUR: "€", GBP: "£"})[fiche.devise_budget] || fiche.devise_budget || "€"} par mois`;
+  if (c === "type_permis") return `Permis ${v}`;
+  return LIBELLES[v] || String(v);
+}
+
+function afficherProfil(nouvelleFiche, connues, total, prochaine) {
+  const avant = fiche;
+  fiche = nouvelleFiche; demandee = prochaine;
+  const p = total ? Math.round(100 * connues / total) : 0;
+  $("#anneau").style.setProperty("--p", p);
+  $("#pourcent").textContent = `${p} %`;
+  $("#avancement").textContent = `${connues} information${connues > 1 ? "s" : ""} sur ${total}`;
+  const zone = $("#groupes");
+  zone.replaceChildren();
+  for (const [titre, champs] of GROUPES) {
+    const g = el("div", "groupe");
+    g.append(el("h3", null, titre));
+    for (const [c, lib, facultatif] of champs) {
+      const v = valeur(c, fiche[c]);
+      if (facultatif && v === null) continue;
+      if (c === "bonus_malus" || c === "sinistres_responsables_36_mois") { if (fiche.deja_assure === false) continue; }
+      const r = el("div", "rang");
+      if (c === prochaine) r.classList.add("en-cours");
+      if (v !== null && avant[c] !== fiche[c] && Object.keys(avant).length) r.classList.add("nouveau");
+      r.append(el("span", "libelle", lib));
+      r.append(v === null ? el("span", "valeur vide", c === prochaine ? "en cours" : "—") : el("span", "valeur", v));
+      g.append(r);
+    }
+    zone.append(g);
+  }
+  setTimeout(() => document.querySelectorAll(".rang.nouveau").forEach((r) => r.classList.remove("nouveau")), 1400);
+  const sugg = $("#suggestions");
+  sugg.replaceChildren();
+  for (const s of (SUGGESTIONS[prochaine] || [])) {
+    const b = el("button", "puce", s); b.type = "button";
+    b.addEventListener("click", () => envoyer(s));
+    sugg.append(b);
+  }
+}
+
+function defiler() { const f = $("#fil"); f.scrollTop = f.scrollHeight; }
+function bulleConseiller(texte) {
+  const ligne = el("div", "ligne-conseiller");
+  ligne.append(el("div", "avatar", "A"));
+  const b = el("div", "bulle conseiller", texte);
+  ligne.append(b);
+  $("#fil").append(ligne); defiler();
+  return b;
+}
+function bulleClient(texte) { $("#fil").append(el("div", "bulle client", texte)); defiler(); }
+function ecrit() {
+  const ligne = el("div", "ligne-conseiller"); ligne.append(el("div", "avatar", "A"));
+  const b = el("div", "bulle conseiller ecrit"); b.append(el("i"), el("i"), el("i"));
+  ligne.append(b); $("#fil").append(ligne); defiler();
+  return ligne;
+}
+
+function afficherOffres(liste, coefs, info) {
+  if (info) $("#fil").append(el("div", "etape", info));
+  if (!liste.length) return;
+  const grille = el("div", "offres");
+  liste.slice(0, 3).forEach((o, i) => {
+    const c = el("article", "offre" + (i === 0 ? " premiere" : ""));
+    if (i === 0) c.append(el("span", "reco", "Recommandée"));
+    c.append(el("div", "assureur", o.assureur), el("div", "produit", o.produit));
+    const prix = el("div", "prix", `${prixFmt.format(o.prix_mensuel_estime_eur)} €`);
+    prix.append(el("small", null, " / mois"));
+    c.append(prix);
+    if (o.dans_le_budget !== null) c.append(el("span", "budget " + (o.dans_le_budget ? "oui" : "non"), o.dans_le_budget ? "Dans votre budget" : "Au-dessus de votre budget"));
+    const g = el("div", "garanties");
+    o.garanties.slice(0, 6).forEach((x) => g.append(el("span", null, x)));
+    c.append(g);
+    if (o.lien) { const a = el("a", null, "Voir la fiche officielle"); a.href = o.lien; a.target = "_blank"; a.rel = "noopener"; c.append(a); }
+    grille.append(c);
+  });
+  $("#fil").append(grille);
+  const d = el("details", "calcul");
+  d.append(el("summary", null, "Comment le prix est estimé"));
+  d.append(el("p", null, "Prix de base de l'offre × " + Object.entries(coefs).map(([k, v]) => `${k} ×${String(v).replace(".", ",")}`).join(", ")));
+  $("#fil").append(d);
+  defiler();
+}
+
+function afficherDemo(j) {
+  if (!DEMO) return;
+  const z = $("#demo-tour"); z.replaceChildren();
+  z.append(el("div", null, `Petit modèle : ${j.duree_s} s${j.erreur ? " — erreur : " + j.erreur : ""}`));
+  z.append(el("div", null, "Retenu du petit modèle : " + JSON.stringify(j.retenu_du_petit_modele)));
+  z.append(el("div", null, "Lu directement dans la réponse : " + JSON.stringify(j.lu_dans_la_reponse)));
+  z.append(el("pre", null, j.reponse_brute || "(vide)"));
+}
+
+async function demarrer() {
+  occupe = false;
+  $("#fil").replaceChildren();
+  fiche = {};
+  const r = await fetch("/api/conversation", {method: "POST"}).then((x) => x.json());
+  id = r.id;
+  bulleConseiller(r.message);
+  afficherProfil(r.fiche, r.connues, r.total, r.demandee);
+  if (DEMO) { $("#demo").hidden = false; $("#demo-modeles").textContent = `Petit modèle : ${r.modeles.petit} · Gros LLM : ${r.modeles.gros} · Données : ${r.donnees}`; }
+  $("#saisie").focus();
+}
+
+async function envoyer(texte) {
+  texte = texte.trim();
+  if (!texte || occupe || !id) return;
+  occupe = true; $("#envoyer").disabled = true; $("#saisie").value = "";
+  $("#suggestions").replaceChildren();
+  bulleClient(texte);
+  let attente = ecrit(), bulle = null;
+  try {
+    const rep = await fetch("/api/message", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id, texte})});
+    if (!rep.ok) throw new Error((await rep.json()).detail || rep.statusText);
+    const lecteur = rep.body.getReader(), dec = new TextDecoder();
+    let reste = "";
+    while (true) {
+      const {value, done} = await lecteur.read();
+      if (done) break;
+      reste += dec.decode(value, {stream: true});
+      const lignes = reste.split("\n"); reste = lignes.pop();
+      for (const l of lignes) {
+        if (!l.trim()) continue;
+        const e = JSON.parse(l);
+        if (e.t === "fiche") afficherProfil(e.fiche, e.connues, e.total, e.demandee);
+        else if (e.t === "demo") afficherDemo(e);
+        else if (e.t === "message") { attente?.remove(); attente = null; bulleConseiller(e.v); }
+        else if (e.t === "offres") { attente?.remove(); attente = null; afficherOffres(e.offres, e.coefs, e.info); if (e.offres.length) attente = ecrit(); }
+        else if (e.t === "jeton") { if (!bulle) { attente?.remove(); attente = null; bulle = bulleConseiller(""); } bulle.textContent += e.v; defiler(); }
+        else if (e.t === "erreur") { attente?.remove(); attente = null; $("#fil").append(el("div", "erreur", e.v)); }
+      }
+    }
+  } catch (err) {
+    $("#fil").append(el("div", "erreur", "Le conseiller ne répond pas. Vérifiez qu'Ollama est lancé, puis réessayez. (" + err.message + ")"));
+  } finally {
+    attente?.remove();
+    occupe = false; $("#envoyer").disabled = false; $("#saisie").focus(); defiler();
+  }
+}
+
+$("#formulaire").addEventListener("submit", (e) => { e.preventDefault(); envoyer($("#saisie").value); });
+$("#nouvelle").addEventListener("click", demarrer);
+demarrer();
+</script>
+</body>
+</html>

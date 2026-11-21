@@ -45,7 +45,7 @@ def _moteur():
     return create_engine(url.replace("postgresql://", "postgresql+psycopg2://", 1), pool_pre_ping=True)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def table(nom: str, colonnes: str = "*") -> pd.DataFrame:
     if os.environ.get("NEON_DATABASE_URL"):
         return pd.read_sql(f'SELECT {colonnes} FROM objectif1."{nom}"', _moteur())
@@ -62,6 +62,23 @@ def zone_de(commune: str | None) -> str | None:
     villes = table("profils", "commune, type_zone").drop_duplicates("commune")
     m = villes[villes.commune.str.lower() == commune.strip().lower()]
     return None if m.empty else m.type_zone.iloc[0]
+
+
+def deduire(quoi: str, valeur: str):
+    """Déductions sûres depuis la base : le pays d'une ville connue, le type (auto/moto) d'un modèle connu."""
+    try:
+        if quoi == "pays":
+            villes = table("profils", "commune, pays_residence").drop_duplicates("commune")
+            m = villes[villes.commune.str.lower() == valeur.strip().lower()]
+            return None if m.empty else m.pays_residence.iloc[0]
+        if quoi == "type":
+            modeles = table("profils", "marque_modele, type_vehicule").drop_duplicates("marque_modele")
+            v = valeur.strip().lower()
+            m = modeles[modeles.marque_modele.str.lower().apply(lambda x: x == v or x.endswith(" " + v) or v in x)]
+            return None if m.empty else m.type_vehicule.iloc[0]
+    except Exception:
+        return None
+    return None
 
 
 # --------------------------------------------------------------------------- tarification
@@ -84,7 +101,9 @@ def coefficients(fiche: dict, type_v: str) -> dict:
     c = {
         "âge": next(v for borne, v in AGE[type_v] if age <= borne),
         "bonus-malus": coef_bonus_malus(fiche),
-        "jeune conducteur": JEUNE_CONDUCTEUR.get(fiche.get("annees_permis"), 1.0) if fiche.get("annees_permis") is not None else 1.0,
+        # conducteur novice : moins de 3 ans de permis, ou jamais assuré (premier contrat)
+        "jeune conducteur": 2.0 if fiche.get("deja_assure") is False else
+                            JEUNE_CONDUCTEUR.get(fiche.get("annees_permis"), 1.0) if fiche.get("annees_permis") is not None else 1.0,
         "usage": COEF_USAGE.get(fiche.get("usage"), 1.0),
         "kilométrage": next(v for borne, v in KM if km <= borne),
         "stationnement": COEF_STATIONNEMENT.get(fiche.get("stationnement_nuit"), 1.0),
@@ -106,6 +125,8 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
     if choix.empty:
         choix = prix[(prix.pays == "France") & (prix.type == type_v) & (prix.formule == formule)]
         message = f"Pas d'offre {type_v} en base pour « {pays} » : offres françaises affichées à titre d'exemple."
+    if coef_bonus_malus(fiche) <= 1.0:  # les produits réservés aux conducteurs malussés ne concernent pas ce client
+        choix = choix[~choix.produit.str.contains("malus", case=False, na=False)]
     coefs = coefficients(fiche, type_v)
     total = 1.0
     for v in coefs.values():
