@@ -200,6 +200,17 @@ QUESTIONS_LLM=1                        0 pour poser les questions prévues sans 
 REGCHECK_USER=...                      compte RegCheck (gratuit) pour retrouver le véhicule par sa plaque
 ```
 
+Refus de répondre : le client peut dire « je préfère ne pas répondre » (ou cliquer sur le bouton) ; la question est
+passée, le dossier affiche « Non communiqué » et le prix utilise une valeur moyenne (l'estimation est signalée comme moins
+précise). Seul le type de véhicule est indispensable.
+
+Choix final : quand le profil est complet, le conseiller demande ce qui compte le plus (prix, garanties ou réputation de
+l'assureur). Les offres sont classées selon ce critère (`offres.classer`), et le client peut changer de tri ensuite.
+- prix : les moins chères d'abord ; à moins de 5 % d'écart, l'assureur le mieux noté passe devant (« départagée par les avis ») ;
+- garanties : le plus de garanties d'abord, puis le prix ;
+- réputation : note des clients corrigée par le nombre d'avis (moyenne bayésienne), puis le prix.
+Les notes viennent de la table `reputation_assureurs` (Trustpilot surtout, avec la source de chaque note).
+
 Plaque d'immatriculation : quand le conseiller demande le véhicule, une carte permet de saisir la plaque. L'API RegCheck
 renvoie la marque, le modèle, l'année et l'énergie, qui remplissent le dossier d'un coup (`app/plaque.py`). La plaque
 n'est pas enregistrée. Sans `REGCHECK_USER`, ou si la plaque n'est pas trouvée, le conseiller demande la marque et le

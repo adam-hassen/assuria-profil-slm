@@ -55,6 +55,16 @@ AIDE = {
     "budget_mensuel_max": "Quel montant maximum par mois, par exemple « 60 € » ?",
 }
 # cases sans lesquelles on peut quand même chercher des offres : on n'insiste pas plus de deux fois
+# le client peut refuser de répondre ; seul le type de véhicule est indispensable pour chercher des offres
+REFUS = re.compile(r"\b(je (ne )?(veux|souhaite|prefere|prefererais) pas (le |la |les |vous )?(dire|repondre|donner|communiquer|preciser)|"
+                   r"je prefere ne pas|pas envie de|je passe|on passe|passons|passer cette question|confidentiel|"
+                   r"ca ne vous regarde pas|ca vous regarde pas|sans reponse|je ne sais pas|je sais pas|aucune idee|"
+                   r"non communique|pas de reponse)\b")
+INDISPENSABLES = {"type_vehicule"}
+CRITERES = {"prix": "le prix", "garanties": "les garanties", "reputation": "la réputation de l'assureur"}
+QUESTION_CRITERE = ("Votre profil est complet. Avant de vous présenter les offres, qu'est-ce qui compte le plus pour vous : "
+                    "le prix, les garanties, ou la réputation de l'assureur (avis des clients) ?")
+
 FACULTATIVES = {"bonus_malus", "kilometrage_annuel", "pays_residence", "sinistres_responsables_36_mois"}
 VILLES_ARRONDISSEMENTS = {"paris": "Paris", "lyon": "Lyon", "marseille": "Marseille"}
 ACCUEIL = ("Bonjour, je suis votre conseiller AssurIA. Je vais vous poser quelques questions pour trouver les offres "
@@ -70,11 +80,14 @@ On te donne le dernier message du client et la question que tu dois poser mainte
 N'écris que le message destiné au client."""
 
 CONSIGNE_RECOMMANDATION = """Tu es un conseiller en assurance auto et moto. Tu écris en français, sans dire bonjour.
-On te donne la formule choisie par le client et les offres trouvées dans notre base, déjà classées.
-En 4 à 6 phrases : recommande la première offre (assureur, produit, prix estimé par mois, dans le budget ou non), puis cite
+On te donne la formule choisie par le client, le critère qui compte le plus pour lui (prix, garanties ou réputation)
+et les offres trouvées dans notre base, déjà classées selon ce critère.
+En 4 à 6 phrases : recommande la première offre (assureur, produit, prix estimé par mois, dans le budget ou non) en
+expliquant pourquoi elle sort en tête au regard du critère du client ; si l'offre a été départagée par les avis clients
+(champ « departagee_par_les_avis »), dis-le. Cite la note des clients quand elle est donnée, avec sa plateforme. Puis cite
 brièvement les deux suivantes comme alternatives, avec leur prix.
 Règles strictes : n'utilise QUE les informations données ; ne cite une garantie que si elle figure dans la liste « garanties »
-de cette offre ; ne parle jamais de franchise ni de remise ; recopie les prix exactement. Termine en rappelant que les prix
+de cette offre ; ne parle jamais de franchise ni de remise ; recopie les prix et les notes exactement ; n'invente aucune note. Termine en rappelant que les prix
 sont des estimations et qu'un devis auprès de l'assureur est nécessaire. Pas de liste à puces, pas de titre."""
 
 
@@ -331,7 +344,8 @@ class Conversation:
         self.demandee = "type_vehicule"
         self.essais: dict[str, int] = {}
         self.ignorees: set[str] = set()
-        self.verrouillees: set[str] = set()  # cases remplies par la plaque : le petit modèle n'y touche plus
+        self.verrouillees: set[str] = set()
+        self.critere: str | None = None  # ce qui compte le plus pour le client à la fin : prix, garanties, reputation  # cases remplies par la plaque : le petit modèle n'y touche plus
         self.terminee = False
         self.journal: list[dict] = []
 
@@ -401,8 +415,12 @@ class Conversation:
         self.completer(deduire)
         if self.fiche.get("deja_assure") is False:
             self.fiche["annees_assure_total"] = 0
-        # 3. la question a-t-elle reçu une réponse ?
+        # 3. la question a-t-elle reçu une réponse ? Le client peut aussi refuser de répondre.
         compris = self.demandee is None or self.fiche.get(self.demandee) is not None
+        passee = None
+        if not compris and REFUS.search(simple(message)) and self.demandee not in INDISPENSABLES:
+            self.ignorees.add(self.demandee)
+            passee, compris = self.demandee, True
         if not compris:
             self.essais[self.demandee] = self.essais.get(self.demandee, 0) + 1
             if self.essais[self.demandee] >= 2 and self.demandee in FACULTATIVES:
@@ -412,7 +430,18 @@ class Conversation:
         suivante = self.case_suivante()
         relance = not compris and suivante == self.demandee
         self.demandee = suivante
-        return {"suivante": suivante, "relance": relance}
+        return {"suivante": suivante, "relance": relance, "passee": passee}
+
+    def choisir_critere(self, message: str) -> str:
+        t = simple(message)
+        if re.search(r"garanti|couvert|couvrir|protection|protege|complet", t):
+            self.critere = "garanties"
+        elif re.search(r"reput|avis|note|confiance|serieu|fiab|service|client|satisf", t):
+            self.critere = "reputation"
+        else:
+            self.critere = "prix"
+        self.historique.append({"role": "user", "content": message})
+        return self.critere
 
     def vehicule_par_plaque(self, plaque: str, resultat: dict) -> dict:
         """Remplit la fiche avec le véhicule trouvé grâce à la plaque (la plaque elle-même n'est pas gardée)."""
@@ -428,9 +457,11 @@ class Conversation:
         self.demandee = self.case_suivante()
         return {"suivante": self.demandee, "relance": False}
 
-    def question(self, suivante: str, relance: bool, message: str) -> str:
+    def question(self, suivante: str, relance: bool, message: str, passee: str | None = None) -> str:
         """Le gros LLM formule la question ; si sa réponse sort du cadre, on garde la question prévue."""
         prevue = QUESTION[suivante]
+        if relance and suivante in INDISPENSABLES and REFUS.search(simple(message)):
+            return "J'ai besoin de cette information pour vous proposer des offres adaptées. " + prevue
         if relance and self.essais.get(suivante, 0) >= 1 and suivante in AIDE:
             prevue = AIDE[suivante]
         elif suivante == "marque_modele" and self.fiche.get("type_vehicule"):
@@ -443,6 +474,10 @@ class Conversation:
             prevue = "Ce kilométrage me paraît très élevé pour une année. " + prevue
         elif relance and not salutation:
             prevue = "Je n'ai pas bien saisi votre réponse. " + prevue
+        base = prevue
+        if passee:
+            message = "(le client préfère ne pas répondre à la question précédente)"
+            prevue = "Pas de problème, nous continuons sans cette information. " + prevue
         if os.environ.get("QUESTIONS_LLM", "1") == "0":
             return prevue
         try:
@@ -453,17 +488,23 @@ class Conversation:
         except Exception:
             return prevue
         texte = re.sub(r"<think>.*?</think>", "", texte, flags=re.S).strip().strip('"«» ')
-        mots_cles = [w for w in re.findall(r"\w{5,}", simple(prevue)) if w not in ("souhaitez", "quelle", "quels")]
+        mots_cles = [w for w in re.findall(r"\w{5,}", simple(base)) if w not in ("souhaitez", "quelle", "quels")]
         cadre = (texte.endswith("?") and len(texte) < 350 and texte.count("?") == 1
                  and not re.search(r"\b(bonjour|je suis votre)\b", simple(texte))
                  and any(m in simple(texte) for m in mots_cles[:4]))
         return texte if cadre else prevue
 
     def recommandation(self, offres: list[dict]):
+        def note(o):
+            if not o.get("note_clients"):
+                return "non disponible"
+            return f"{str(o['note_clients']).replace('.', ',')}/5 ({o['nombre_avis']} avis {o['plateforme_avis']})"
         resume = [{"rang": i + 1, "assureur": o["assureur"], "produit": o["produit"],
                    "prix_mensuel_estime": f"{o['prix_mensuel_estime_eur']:.2f} €".replace(".", ","),
-                   "dans_le_budget": o["dans_le_budget"], "garanties": o["garanties"]} for i, o in enumerate(offres[:3])]
-        client = {"formule": self.fiche.get("formule_souhaitee"), "budget_par_mois": self.fiche.get("budget_mensuel_max")}
+                   "dans_le_budget": o["dans_le_budget"], "garanties": o["garanties"], "note_clients": note(o),
+                   "departagee_par_les_avis": bool(o.get("departagee"))} for i, o in enumerate(offres[:3])]
+        client = {"formule": self.fiche.get("formule_souhaitee"), "budget_par_mois": self.fiche.get("budget_mensuel_max"),
+                  "critere_le_plus_important": CRITERES.get(self.critere or "prix")}
         return ollama_chat(self.llm, [
             {"role": "system", "content": CONSIGNE_RECOMMANDATION},
             {"role": "user", "content": f"Client : {json.dumps(client, ensure_ascii=False)}\n\n"

@@ -186,6 +186,27 @@
   .vehicule .v-details { font-size: 13px; color: var(--doux); }
   .vehicule .v-plaque { font-family: var(--mono); font-size: 12px; border: 1.5px solid #1b1b1b; border-left: 6px solid #003399; border-radius: 4px; padding: 0 6px; color: #111; margin-left: auto; flex: none; align-self: flex-start; }
 
+  .puce.discrete { border-style: dashed; color: var(--doux); }
+  .puce.discrete:hover { color: var(--marine); }
+  .champ dd.vide.passe, .champ dd.vide { font-style: normal; }
+  .bloc-offres { display: flex; flex-direction: column; gap: 10px; }
+  .offres-titre { flex-wrap: wrap; align-items: center; }
+  .offres-titre > div:first-child { display: flex; flex-direction: column; }
+  .tri { display: inline-flex; background: var(--marine-clair); border-radius: 9px; padding: 3px; gap: 2px; }
+  .tri button { border: none; background: transparent; border-radius: 7px; padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--doux); }
+  .tri button small { font-size: 11px; color: var(--pale); font-weight: 400; }
+  .tri button[aria-selected="true"] { background: var(--carte); color: var(--marine); box-shadow: 0 1px 2px rgba(15, 29, 46, .12); font-weight: 600; }
+  .explication-tri { margin: -2px 0 2px; font-size: 12.5px; color: var(--doux); }
+  .badge.clair { background: var(--vert-fond); color: var(--vert); }
+  .avis { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--doux); margin-top: 4px; flex-wrap: wrap; }
+  .avis b { color: var(--encre); font-weight: 600; }
+  .avis a { color: var(--doux); }
+  .avis.absent { font-style: italic; color: var(--pale); }
+  .etoiles { --n: 0; position: relative; display: inline-block; font-size: 13px; line-height: 1; letter-spacing: 1px; color: #d5dbe3; }
+  .etoiles::before { content: "★★★★★"; }
+  .etoiles::after { content: "★★★★★"; position: absolute; left: 0; top: 0; overflow: hidden; color: #e0a100; width: calc(var(--n) / 5 * 100%); }
+  .garanties li.plus { color: var(--doux); font-size: 12.5px; }
+
   /* ---------- dossier (droite) */
   .dossier { background: var(--carte); border-left: 1px solid var(--trait); overflow-y: auto; display: flex; flex-direction: column; }
   .dossier-tete { padding: 24px 24px 18px; border-bottom: 1px solid var(--trait); }
@@ -344,7 +365,9 @@ const LIBELLES = {
   tiers: "Au tiers", tiers_plus: "Intermédiaire", tous_risques: "Tous risques", essence: "Essence", diesel: "Diesel",
   hybride: "Hybride", electrique: "Électrique",
 };
+const PASSER = "Je préfère ne pas répondre";
 const SUGGESTIONS = {
+  critere: ["Le prix", "Les garanties", "La réputation de l'assureur"],
   type_vehicule: ["Une voiture", "Une moto"],
   deja_assure: ["Oui", "Non, jamais"],
   sinistres_responsables_36_mois: ["Aucun sinistre", "1 sinistre responsable"],
@@ -378,6 +401,7 @@ function valeur(c, v) {
   if (c === "kilometrage_annuel") return `${nf.format(v)} km / an`;
   if (c === "budget_mensuel_max") return `${nf.format(v)} ${SYMBOLE[fiche.devise_budget] || fiche.devise_budget || "€"} / mois`;
   if (c === "type_permis") return `Permis ${v}`;
+  if (c === "sinistres_responsables_36_mois") return v === 0 ? "Aucun" : `${v} sinistre${v > 1 ? "s" : ""}`;
   if (c === "commune") return String(v).replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
   return LIBELLES[v] || String(v);
 }
@@ -403,7 +427,7 @@ function afficherEtapes() {
     const t = el("div", "etape-texte"); t.append(el("div", "etape-nom", titre));
     let detail = "";
     if (champs.length) {
-      const vus = champs.filter(([c, , fac]) => !fac && !masque(c)).map(([c]) => c === "deja_assure" && fiche[c] === false ? "Premier contrat" : valeur(c, fiche[c])).filter(Boolean);
+      const vus = champs.filter(([c, , fac]) => !fac && !masque(c)).map(([c]) => c === "deja_assure" ? (fiche[c] === false ? "Premier contrat" : fiche[c] ? "Déjà assuré" : null) : valeur(c, fiche[c])).filter(Boolean);
       detail = vus.length ? vus.slice(0, 2).join(" · ") : (etat === "actif" ? "En cours" : "");
     } else detail = actif > ETAPES.length ? "Comparaison terminée" : etat === "actif" ? "Recherche en cours" : "Comparaison des offres";
     if (detail) t.append(el("div", "etape-detail", detail));
@@ -412,7 +436,9 @@ function afficherEtapes() {
   });
 }
 
-function afficherProfil(nouvelleFiche, connues, total, prochaine) {
+let ignorees = [];
+function afficherProfil(nouvelleFiche, connues, total, prochaine, passees) {
+  ignorees = passees || [];
   const avant = fiche;
   fiche = nouvelleFiche; demandee = prochaine;
   const p = total ? Math.round(100 * connues / total) : 0;
@@ -434,7 +460,7 @@ function afficherProfil(nouvelleFiche, connues, total, prochaine) {
       const r = el("div", "champ");
       if (c === prochaine) r.classList.add("en-cours");
       if (v !== null && avant[c] !== fiche[c] && Object.keys(avant).length) r.classList.add("nouveau");
-      r.append(el("dt", null, lib), v === null ? el("dd", "vide", c === prochaine ? "Question en cours" : "—") : el("dd", null, v));
+      r.append(el("dt", null, lib), v === null ? el("dd", "vide", c === prochaine ? "Question en cours" : ignorees.includes(c) ? "Non communiqué" : "—") : el("dd", null, v));
       dl.append(r);
     }
     s.append(h, dl); zone.append(s);
@@ -445,8 +471,10 @@ function afficherProfil(nouvelleFiche, connues, total, prochaine) {
   const sugg = $("#suggestions"); sugg.replaceChildren();
   if (prochaine !== "marque_modele") $("#saisie").placeholder = "Écrivez votre réponse…";
   if (prochaine === "marque_modele" && PLAQUE && !sansPlaque) { sugg.append(cartePlaque()); return; }
-  for (const t of (SUGGESTIONS[prochaine] || [])) {
-    const b = el("button", "puce", t); b.type = "button";
+  const puces = [...(SUGGESTIONS[prochaine] || [])];
+  if (prochaine && !["type_vehicule", "critere"].includes(prochaine)) puces.push(PASSER);
+  for (const t of puces) {
+    const b = el("button", "puce" + (t === PASSER ? " discrete" : ""), t); b.type = "button";
     b.addEventListener("click", () => envoyer(t));
     sugg.append(b);
   }
@@ -508,58 +536,98 @@ function ecrit() {
 }
 function finEcrit(l) { l?.remove(); $("#statut-conseiller").textContent = "En ligne"; }
 
-function afficherOffres(liste, coefs, info) {
-  if (info) $("#fil").append(el("div", "info", info));
-  if (!liste.length) return;
-  const tete = el("div", "offres-titre");
-  tete.append(el("h3", null, "Offres adaptées à votre profil"), el("span", null, `${Math.min(3, liste.length)} offres sur ${liste.length} comparées`));
-  $("#fil").append(tete);
-  // budget en euros pour la jauge (seulement si le budget est en euros)
-  const budget = (!fiche.devise_budget || fiche.devise_budget === "EUR") ? fiche.budget_mensuel_max : null;
-  const grille = el("div", "offres");
-  liste.slice(0, 3).forEach((o, i) => {
-    const c = el("article", "offre" + (i === 0 ? " premiere" : ""));
-    c.append(el("div", "rang-offre", String(i + 1).padStart(2, "0")));
-    const nom = el("div", "offre-nom");
-    const a = el("div", "assureur", o.assureur); if (i === 0) a.append(el("span", "badge", "Recommandée"));
-    nom.append(a, el("div", "produit", o.produit));
-    const prix = el("div", "offre-prix");
-    const m = el("div", "montant", `${prixFmt.format(o.prix_mensuel_estime_eur)} €`); m.append(el("small", null, " / mois"));
-    prix.append(m, el("div", "annuel", `soit ${nf.format(Math.round(o.prix_mensuel_estime_eur * 12))} € / an`));
-    c.append(nom, prix);
+const TRIS = {prix: "Prix", garanties: "Garanties", reputation: "Avis clients"};
+const EXPLICATION_TRI = {
+  prix: "Les moins chères d'abord. À prix proches (moins de 5 % d'écart), l'assureur le mieux noté par ses clients passe devant.",
+  garanties: "Les offres qui comprennent le plus de garanties d'abord, puis les moins chères.",
+  reputation: "Les assureurs les mieux notés par leurs clients d'abord. La note tient compte du nombre d'avis : 4,3 sur 1 600 avis compte plus que 4,8 sur 20.",
+};
 
-    const corps = el("div", "offre-corps");
-    if (o.dans_le_budget !== null && budget) {
-      const j = el("div", "jauge" + (o.dans_le_budget ? "" : " non"));
+function noteAvis(o) {
+  const z = el("div", "avis");
+  if (!o.note_clients) { z.classList.add("absent"); z.append(el("span", null, "Avis clients non disponibles")); return z; }
+  const etoiles = el("span", "etoiles"); etoiles.style.setProperty("--n", o.note_clients);
+  etoiles.setAttribute("aria-label", `${o.note_clients} sur 5`);
+  z.append(etoiles, el("b", null, String(o.note_clients).replace(".", ",") + "/5"));
+  const t = el("span", null, ` · ${nf.format(o.nombre_avis)} avis `);
+  z.append(t);
+  if (o.source_avis) { const a = el("a", null, o.plateforme_avis); a.href = o.source_avis; a.target = "_blank"; a.rel = "noopener"; z.append(a); }
+  else z.append(document.createTextNode(o.plateforme_avis));
+  return z;
+}
+
+function carteOffre(o, i, budget) {
+  const c = el("article", "offre" + (i === 0 ? " premiere" : ""));
+  c.append(el("div", "rang-offre", String(i + 1).padStart(2, "0")));
+  const nom = el("div", "offre-nom");
+  const a = el("div", "assureur", o.assureur);
+  if (i === 0) a.append(el("span", "badge", "Recommandée"));
+  if (o.departagee) a.append(el("span", "badge clair", "Départagée par les avis"));
+  nom.append(a, el("div", "produit", o.produit), noteAvis(o));
+  const prix = el("div", "offre-prix");
+  const m = el("div", "montant", `${prixFmt.format(o.prix_mensuel_estime_eur)} €`); m.append(el("small", null, " / mois"));
+  prix.append(m, el("div", "annuel", `soit ${nf.format(Math.round(o.prix_mensuel_estime_eur * 12))} € / an`));
+  c.append(nom, prix);
+
+  const corps = el("div", "offre-corps");
+  if (o.dans_le_budget !== null) {
+    const j = el("div", "jauge" + (o.dans_le_budget ? "" : " non"));
+    if (budget) {
       const barre = el("div", "jauge-barre"); const r = el("i"); r.style.width = Math.min(100, 100 * o.prix_mensuel_estime_eur / budget) + "%"; barre.append(r);
       j.append(barre, el("span", null, o.dans_le_budget ? `Dans votre budget (${nf.format(budget)} €)` : `Au-dessus de votre budget (${nf.format(budget)} €)`));
-      corps.append(j);
-    } else if (o.dans_le_budget !== null) {
-      const j = el("div", "jauge" + (o.dans_le_budget ? "" : " non"));
-      j.append(el("span", null, o.dans_le_budget ? "Dans votre budget" : "Au-dessus de votre budget"));
-      corps.append(j);
-    }
-    if (o.garanties.length) {
-      const g = el("ul", "garanties");
-      o.garanties.slice(0, 8).forEach((x) => { const li = el("li"); li.append(icone("i-coche"), document.createTextNode(GARANTIE[x] || majuscule(x))); g.append(li); });
-      corps.append(g);
-    }
-    const pied = el("div", "offre-pied");
-    pied.append(el("span", "formule", "Formule " + (LIBELLES[o.formule] || o.formule).toLowerCase()));
-    if (o.lien) {
-      const l = el("a", null, "Fiche officielle"); l.href = o.lien; l.target = "_blank"; l.rel = "noopener";
-      l.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h6v6M11 3L4 10"/></svg>');
-      pied.append(l);
-    }
-    corps.append(pied); c.append(corps); grille.append(c);
-  });
-  $("#fil").append(grille);
+    } else j.append(el("span", null, o.dans_le_budget ? "Dans votre budget" : "Au-dessus de votre budget"));
+    corps.append(j);
+  }
+  if (o.garanties.length) {
+    const g = el("ul", "garanties");
+    o.garanties.slice(0, 8).forEach((x) => { const li = el("li"); li.append(icone("i-coche"), document.createTextNode(GARANTIE[x] || majuscule(x))); g.append(li); });
+    if (o.garanties.length > 8) g.append(el("li", "plus", `+ ${o.garanties.length - 8} autre${o.garanties.length > 9 ? "s" : ""}`));
+    corps.append(g);
+  }
+  const pied = el("div", "offre-pied");
+  pied.append(el("span", "formule", `Formule ${(LIBELLES[o.formule] || o.formule).toLowerCase()} · ${o.garanties.length} garanties`));
+  if (o.lien) {
+    const l = el("a", null, "Fiche officielle"); l.href = o.lien; l.target = "_blank"; l.rel = "noopener";
+    l.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 3h6v6M11 3L4 10"/></svg>');
+    pied.append(l);
+  }
+  corps.append(pied); c.append(corps);
+  return c;
+}
+
+function afficherOffres(e) {
+  const liste = e.offres;
+  if (e.info) $("#fil").append(el("div", "info", e.info));
+  if (!liste.length) return;
+  if (e.manquantes?.length) $("#fil").append(el("div", "info", `Estimation moins précise : ${e.manquantes.join(", ")} non communiqué${e.manquantes.length > 1 ? "s" : ""}.`));
+  const budget = (!fiche.devise_budget || fiche.devise_budget === "EUR") ? fiche.budget_mensuel_max : null;
+  const bloc = el("section", "bloc-offres");
+  const tete = el("div", "offres-titre");
+  const titre = el("div"); titre.append(el("h3", null, "Offres adaptées à votre profil"), el("span", null, `${Math.min(3, liste.length)} meilleures sur ${e.comparees || liste.length} offres comparées`));
+  const tri = el("div", "tri"); tri.setAttribute("role", "tablist"); tri.setAttribute("aria-label", "Trier les offres");
+  tete.append(titre, tri);
+  const explication = el("p", "explication-tri");
+  const grille = el("div", "offres");
+  const rendre = (k) => {
+    tri.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", b.dataset.k === k));
+    explication.textContent = EXPLICATION_TRI[k];
+    grille.replaceChildren(...(e.par_critere?.[k] || liste).slice(0, 3).map((o, i) => carteOffre(o, i, budget)));
+  };
+  for (const [k, lib] of Object.entries(TRIS)) {
+    const b = el("button", null, lib); b.type = "button"; b.dataset.k = k; b.setAttribute("role", "tab");
+    if (k === e.critere) b.append(el("small", null, " · votre choix"));
+    b.addEventListener("click", () => rendre(k)); tri.append(b);
+  }
+  bloc.append(tete, explication, grille);
+  $("#fil").append(bloc);
+  rendre(e.critere || "prix");
   const d = el("details", "calcul");
   d.append(el("summary", null, "Comment le prix est estimé"));
   d.append(el("p", null, "Prix de base de l'offre pour votre formule, multiplié par les coefficients de votre profil :"));
   const k = el("div", "coefs");
-  Object.entries(coefs).forEach(([n, v]) => { const r = el("div"); r.append(el("span", null, majuscule(n)), el("b", null, "×" + String(v).replace(".", ","))); k.append(r); });
+  Object.entries(e.coefs).forEach(([n, v]) => { const r = el("div"); r.append(el("span", null, majuscule(n)), el("b", null, "×" + String(v).replace(".", ","))); k.append(r); });
   d.append(k);
+  d.append(el("p", null, "Les notes clients viennent de Trustpilot (ou d'une autre plateforme indiquée), relevées en novembre 2026."));
   $("#fil").append(d);
   defiler();
 }
@@ -583,7 +651,7 @@ async function demarrer() {
   $("#reference").textContent = "AS-" + new Date().getFullYear() + "-" + r.id.slice(0, 6).toUpperCase();
   $("#date").textContent = new Date().toLocaleDateString("fr-FR", {day: "2-digit", month: "long", year: "numeric"});
   bulleConseiller(r.message);
-  afficherProfil(r.fiche, r.connues, r.total, r.demandee);
+  afficherProfil(r.fiche, r.connues, r.total, r.demandee, r.ignorees);
   if (DEMO) { $("#demo").hidden = false; $("#demo-modeles").textContent = `Petit modèle : ${r.modeles.petit} · Gros LLM : ${r.modeles.gros} · Données : ${r.donnees}`; }
   $("#saisie").focus();
 }
@@ -610,14 +678,14 @@ async function envoyer(texte, url = "/api/message") {
       for (const l of lignes) {
         if (!l.trim()) continue;
         const e = JSON.parse(l);
-        if (e.t === "fiche") afficherProfil(e.fiche, e.connues, e.total, e.demandee);
+        if (e.t === "fiche") afficherProfil(e.fiche, e.connues, e.total, e.demandee, e.ignorees);
         else if (e.t === "demo") afficherDemo(e);
         else if (e.t === "vehicule") { finEcrit(attente); afficherVehicule(e); attente = ecrit(); }
         else if (e.t === "message") { finEcrit(attente); attente = null; bulleConseiller(e.v); }
         else if (e.t === "offres") {
           finEcrit(attente); attente = null; termine = true; afficherEtapes();
           $("#statut").textContent = "Complet"; $("#statut").className = "statut complet"; $("#barre-prog").classList.add("plein");
-          afficherOffres(e.offres, e.coefs, e.info); if (e.offres.length) attente = ecrit();
+          afficherOffres(e); if (e.offres.length) attente = ecrit();
         }
         else if (e.t === "jeton") { if (!bulle) { finEcrit(attente); attente = null; bulle = bulleConseiller(""); } bulle.textContent += e.v; defiler(); }
         else if (e.t === "erreur") { finEcrit(attente); attente = null; $("#fil").append(el("div", "erreur", e.v)); }

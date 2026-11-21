@@ -13,6 +13,7 @@ Réglages dans le fichier .env à la racine (jamais envoyé sur GitHub) :
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
@@ -48,7 +49,7 @@ conversations: dict[str, agent.Conversation] = {}
 
 def etat(c: agent.Conversation) -> dict:
     n, total = c.progression()
-    return {"fiche": c.fiche, "connues": n, "total": total, "demandee": c.demandee}
+    return {"fiche": c.fiche, "connues": n, "total": total, "demandee": c.demandee, "ignorees": sorted(c.ignorees)}
 
 
 @app.get("/")
@@ -77,18 +78,36 @@ def suite_de_conversation(c: agent.Conversation, suite: dict, texte: str, avant=
     for e in avant:
         yield ligne(e)
     if suite["suivante"]:
-        q = c.question(suite["suivante"], suite["relance"], texte)
+        q = c.question(suite["suivante"], suite["relance"], texte, suite.get("passee"))
         c.historique.append({"role": "assistant", "content": q})
         yield ligne({"t": "message", "v": q})
+    elif c.critere is None:
+        # profil complet : on demande au client ce qui compte le plus avant de présenter les offres
+        c.demandee = "critere"
+        c.historique.append({"role": "assistant", "content": agent.QUESTION_CRITERE})
+        yield ligne({"t": "fiche", **etat(c)})
+        yield ligne({"t": "message", "v": agent.QUESTION_CRITERE})
     else:
         c.terminee = True
+        c.demandee = None
         try:
-            trouvees, coefs, info = offres.chercher(c.fiche)
+            toutes, coefs, info = offres.chercher(c.fiche)
+            par_critere = {k: offres.classer(copy.deepcopy(toutes), k)[:5] for k in agent.CRITERES}
+            trouvees = par_critere[c.critere]
         except Exception as err:
             yield ligne({"t": "erreur", "v": f"Impossible de lire les offres ({err.__class__.__name__}). Vérifiez la connexion à la base."})
             yield ligne({"t": "fin"})
             return
-        yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info if trouvees else ""})
+        libelles = {"age": "âge", "commune": "ville", "pays_residence": "pays", "annees_permis": "ancienneté du permis",
+                    "bonus_malus": "bonus-malus", "kilometrage_annuel": "kilométrage", "usage": "usage",
+                    "stationnement_nuit": "stationnement", "formule_souhaitee": "formule", "budget_mensuel_max": "budget",
+                    "sinistres_responsables_36_mois": "sinistres", "deja_assure": "antécédents", "type_permis": "permis",
+                    "marque_modele": "modèle"}
+        manquantes = [libelles.get(x, x) for x in sorted(c.ignorees)]
+        yield ligne({"t": "fiche", **etat(c)})
+        yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info if trouvees else "",
+                     "critere": c.critere, "par_critere": par_critere, "manquantes": manquantes,
+                     "comparees": len(toutes)})
         if trouvees:
             complet = ""
             try:
@@ -124,7 +143,13 @@ def message(m: Message):
     texte = m.texte.strip()[:1000]
     if c.terminee:
         return StreamingResponse(terminee(), media_type="application/x-ndjson")
-    suite = c.tour(texte, offres.deduire)
+    if c.demandee == "critere":
+        c.choisir_critere(texte)
+        suite = {"suivante": None, "relance": False}
+        c.journal.append({"petit_modele": "(choix du critère)", "duree_s": 0, "reponse_brute": "", "retenu_du_petit_modele": {},
+                          "lu_dans_la_reponse": {"critere": c.critere}, "erreur": None})
+    else:
+        suite = c.tour(texte, offres.deduire)
     return StreamingResponse(suite_de_conversation(c, suite, texte), media_type="application/x-ndjson")
 
 

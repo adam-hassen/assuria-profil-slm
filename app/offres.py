@@ -50,8 +50,9 @@ def table(nom: str, colonnes: str = "*") -> pd.DataFrame:
     if os.environ.get("NEON_DATABASE_URL"):
         return pd.read_sql(f'SELECT {colonnes} FROM objectif1."{nom}"', _moteur())
     fichiers = {"prix_base": "simulation/prix_base.parquet", "offres_europe": "offres_europe/offres_europe.parquet",
-                "profils": "profils/profils.parquet"}
-    df = pd.read_parquet(LOCAL / fichiers[nom])
+                "profils": "profils/profils.parquet", "reputation_assureurs": "reputation/reputation_assureurs.csv"}
+    f = LOCAL / fichiers[nom]
+    df = pd.read_csv(f) if f.suffix == ".csv" else pd.read_parquet(f)
     return df if colonnes == "*" else df[[c.strip() for c in colonnes.split(",")]]
 
 
@@ -132,8 +133,54 @@ DANS_FORMULE = {
                    "bris_de_glace", "catastrophes_naturelles"},
 }
 
+# --------------------------------------------------------------------------- réputation
+def reputation() -> dict:
+    """{(pays, assureur): {note, avis, plateforme, source}} ; vide si la table n'est pas encore disponible."""
+    try:
+        df = table("reputation_assureurs")
+    except Exception:
+        return {}
+    return {(r.pays, r.assureur): {"note": float(r.note_sur_5), "avis": int(r.nombre_avis), "plateforme": r.plateforme,
+                                   "source": r.source} for r in df.itertuples()}
+
+
+def score_reputation(o: dict) -> float:
+    """Note corrigée par le nombre d'avis (moyenne bayésienne) : 4,8 sur 10 avis compte moins que 4,3 sur 5 000."""
+    if not o.get("note_clients"):
+        return 0.0
+    m, moyenne = 300, 3.3
+    return (o["nombre_avis"] * o["note_clients"] + m * moyenne) / (o["nombre_avis"] + m)
+
+
+ECART_PROCHE = 0.05  # deux prix à moins de 5 % l'un de l'autre sont « proches » : les avis départagent
+
+
+def classer(offres: list[dict], critere: str = "prix") -> list[dict]:
+    """Classe les offres selon le critère du client ; à prix proches, la meilleure réputation passe devant."""
+    for o in offres:
+        o["departagee"] = False
+    if critere == "reputation":
+        return sorted(offres, key=lambda o: (o["dans_le_budget"] is False, -score_reputation(o), o["prix_mensuel_estime_eur"]))
+    if critere == "garanties":
+        return sorted(offres, key=lambda o: (o["dans_le_budget"] is False, -len(o["garanties"]), o["prix_mensuel_estime_eur"]))
+    liste = sorted(offres, key=lambda o: (o["dans_le_budget"] is False, o["prix_mensuel_estime_eur"]))
+    # groupes de prix proches (à moins de 5 % de la moins chère du groupe) : dans un groupe, la meilleure réputation d'abord
+    resultat, groupe = [], []
+    for o in liste + [None]:
+        if groupe and (o is None or o["dans_le_budget"] != groupe[0]["dans_le_budget"]
+                       or o["prix_mensuel_estime_eur"] > groupe[0]["prix_mensuel_estime_eur"] * (1 + ECART_PROCHE)):
+            trie = sorted(groupe, key=lambda x: -score_reputation(x))
+            if trie[0] is not groupe[0]:
+                trie[0]["departagee"] = True
+            resultat += trie
+            groupe = []
+        if o is not None:
+            groupe.append(o)
+    return resultat
+
+
 # --------------------------------------------------------------------------- recherche
-def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
+def chercher(fiche: dict, n: int | None = None) -> tuple[list[dict], dict, str]:
     """Retourne (offres classées, coefficients appliqués, message éventuel)."""
     type_v = fiche.get("type_vehicule") or "auto"
     pays, formule = fiche.get("pays_residence"), fiche.get("formule_souhaitee") or "tous_risques"
@@ -156,6 +203,7 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
     budget_eur = None
     if fiche.get("budget_mensuel_max"):
         budget_eur = fiche["budget_mensuel_max"] * TAUX_EUR.get(fiche.get("devise_budget") or "EUR", 1.0)
+    notes = reputation()
     resultats = []
     for r in choix.itertuples():
         mensuel = round(r.prix_base_annuel * total / 12, 2)
@@ -166,9 +214,13 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
         resultats.append({
             "assureur": r.assureur, "produit": r.produit, "formule": "tiers_plus" if r.formule == "intermediaire" else r.formule, "prix_mensuel_estime_eur": mensuel,
             "dans_le_budget": None if budget_eur is None else mensuel <= budget_eur,
-            "garanties": garanties[:8],
+            "garanties": garanties,
             "franchise_min_eur": None if o is None or pd.isna(o.franchise_min_eur) else float(o.franchise_min_eur),
             "lien": r.url_offre,
+            "note_clients": (notes.get((r.pays, r.assureur)) or {}).get("note"),
+            "nombre_avis": (notes.get((r.pays, r.assureur)) or {}).get("avis"),
+            "plateforme_avis": (notes.get((r.pays, r.assureur)) or {}).get("plateforme"),
+            "source_avis": (notes.get((r.pays, r.assureur)) or {}).get("source"),
         })
     # une offre par assureur, les moins chères d'abord, celles dans le budget en premier
     vues, classees = set(), []
@@ -176,4 +228,4 @@ def chercher(fiche: dict, n: int = 5) -> tuple[list[dict], dict, str]:
         if r["assureur"] not in vues:
             vues.add(r["assureur"])
             classees.append(r)
-    return classees[:n], coefs, message
+    return classees[:n] if n else classees, coefs, message
