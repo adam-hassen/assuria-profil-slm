@@ -115,13 +115,14 @@ def lire_reponse(champ: str, texte: str) -> dict:
         if 2 <= len(m) <= 40 and "?" not in m:
             return {"marque_modele": " ".join(w.upper() if any(c.isdigit() for c in w) and len(w) <= 4 else w if w.isupper() else w.capitalize() for w in m.split())}
     if champ == "age":
-        if re.search(r"\bne(e)? en\b", s):
-            ans = [n for n in ns if 1920 <= n <= ANNEE - 14]
-            if ans:
-                return {"age": ANNEE - ans[0]}
         ages = [n for n in ns if 14 <= n <= 99]
         if ages and not any(n > 1900 for n in ns):
             return {"age": ages[0]}
+        # une année de naissance donnée à la place de l'âge (« de 2004 », « né en 2004 ») : on calcule l'âge,
+        # sauf si la phrase parle clairement du véhicule
+        naissance = [n for n in ns if ANNEE - 99 <= n <= ANNEE - 14]
+        if naissance and not re.search(r"voiture|moto|vehicule|circulation|achete", s):
+            return {"age": ANNEE - naissance[0]}
     if champ == "commune":
         c = re.sub(r"^(j'habite|j habite|je vis|je suis|j'suis|on habite)\s*((aux|au|à|a|sur|dans|en)\b)?\s*", "", texte.strip(), flags=re.I)
         c = re.sub(r"^(aux|au|à|a|sur|dans)\s+", "", c, flags=re.I).strip(" .,!")
@@ -247,6 +248,8 @@ def nettoyer(brut: dict, texte_client: str) -> dict:
         try:
             if t == "entier":
                 v = int(float(str(v).replace(" ", "").replace(",", ".")))
+                if c == "age" and ANNEE - 99 <= v <= ANNEE - 14:  # le modèle a recopié l'année de naissance
+                    v = ANNEE - v
                 lo, hi = BORNES.get(c, (0, 10 ** 6))
                 # un nombre doit apparaître dans les messages du client (ou s'en déduire pour les années)
                 if not lo <= v <= hi or (v not in chiffres and (ANNEE - v) not in chiffres and v > 5):
