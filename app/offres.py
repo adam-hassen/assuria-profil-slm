@@ -67,7 +67,11 @@ def zone_de(commune: str | None) -> str | None:
 def trouver_ville(villes: pd.DataFrame, commune: str) -> pd.DataFrame:
     c = commune.strip().lower()
     m = villes[villes.commune.str.lower() == c]
-    return m if not m.empty else villes[villes.commune.str.lower().str.startswith(c + " ")]
+    if m.empty:
+        m = villes[villes.commune.str.lower().str.startswith(c + " ")]
+    if m.empty and " " in c:  # « paris 13e » -> une ville qui commence par « paris »
+        m = villes[villes.commune.str.lower().str.startswith(c.split(" ")[0] + " ")]
+    return m
 
 
 def deduire(quoi: str, valeur: str):

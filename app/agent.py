@@ -45,6 +45,18 @@ QUESTIONS = [
     ("budget_mensuel_max", "Quel budget maximum souhaitez-vous consacrer à votre assurance par mois ?"),
 ]
 QUESTION = dict(QUESTIONS)
+# formulation plus guidée quand le client n'a pas répondu à la question
+AIDE = {
+    "age": "Pouvez-vous m'indiquer votre âge en années, par exemple « 34 ans » ?",
+    "commune": "Pouvez-vous m'indiquer le nom de votre ville, par exemple « Lyon » ou « Le Mans » ?",
+    "marque_modele": "Pouvez-vous m'indiquer la marque et le modèle, par exemple « Renault Clio » ?",
+    "annees_permis": "En quelle année avez-vous obtenu votre permis, par exemple « 2018 » ?",
+    "kilometrage_annuel": "Combien de kilomètres faites-vous par an environ, par exemple « 12 000 km » ?",
+    "budget_mensuel_max": "Quel montant maximum par mois, par exemple « 60 € » ?",
+}
+# cases sans lesquelles on peut quand même chercher des offres : on n'insiste pas plus de deux fois
+FACULTATIVES = {"bonus_malus", "kilometrage_annuel", "pays_residence", "sinistres_responsables_36_mois"}
+VILLES_ARRONDISSEMENTS = {"paris": "Paris", "lyon": "Lyon", "marseille": "Marseille"}
 ACCUEIL = ("Bonjour, je suis votre conseiller AssurIA. Je vais vous poser quelques questions pour trouver les offres "
            "d'assurance qui vous correspondent. Pour commencer, souhaitez-vous assurer une voiture ou une moto ?")
 
@@ -125,6 +137,11 @@ def lire_reponse(champ: str, texte: str) -> dict:
         if naissance and not re.search(r"voiture|moto|vehicule|circulation|achete", s):
             return {"age": ANNEE - naissance[0]}
     if champ == "commune":
+        if "arrondissement" in s or re.search(r"\b\d{1,2} ?(e|eme|er)\b", s):
+            ville = next((v for k, v in VILLES_ARRONDISSEMENTS.items() if k in s), None)
+            n = [x for x in ns if 1 <= x <= 20]
+            # un arrondissement sans ville : on ne devine pas, on redemandera la ville
+            return {"commune": f"{ville} {n[0]}e" if n else ville, "pays_residence": "France"} if ville else {}
         c = re.sub(r"^(j'habite|j habite|je vis|je suis|j'suis|on habite)\s*((aux|au|à|a|sur|dans|en)\b)?\s*", "", texte.strip(), flags=re.I)
         c = re.sub(r"^(aux|au|à|a|sur|dans)\s+", "", c, flags=re.I).strip(" .,!")
         c = re.split(r",| en | au | dans ", c)[0].strip()
@@ -269,7 +286,8 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
                 # un nombre doit apparaître dans les messages du client (ou s'en déduire pour les années)
                 if not lo <= v <= hi or (v not in chiffres and (ANNEE - v) not in chiffres and v > 5):
                     continue
-                if messages is not None and v > 5 and not nombre_soutenu(c, v, messages):
+                petit_ok = c.startswith("sinistres") and v <= 5  # « aucun sinistre » donne 0 sans chiffre écrit
+                if messages is not None and not petit_ok and not nombre_soutenu(c, v, messages):
                     continue  # le nombre existe, mais le client parlait d'autre chose
             elif t == "booléen":
                 v = v if isinstance(v, bool) else simple(v) in ("true", "oui", "vrai", "1")
@@ -286,6 +304,8 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
             else:
                 v = str(v).strip()
                 if c in ("commune", "marque_modele") and simple(v).split(" ")[0] not in client:
+                    continue
+                if c == "commune" and (re.search(r"arrondissement|^\d", simple(v)) or len(v) > 40):
                     continue
         except (ValueError, TypeError):
             continue
@@ -382,8 +402,8 @@ class Conversation:
         compris = self.demandee is None or self.fiche.get(self.demandee) is not None
         if not compris:
             self.essais[self.demandee] = self.essais.get(self.demandee, 0) + 1
-            if self.essais[self.demandee] >= 2:
-                self.ignorees.add(self.demandee)  # on n'insiste pas plus de deux fois
+            if self.essais[self.demandee] >= 2 and self.demandee in FACULTATIVES:
+                self.ignorees.add(self.demandee)  # case facultative : on n'insiste pas plus de deux fois
         self.journal.append({"petit_modele": self.slm, "duree_s": round(duree, 2), "reponse_brute": brut,
                              "retenu_du_petit_modele": propose, "lu_dans_la_reponse": direct, "erreur": erreur})
         suivante = self.case_suivante()
@@ -394,11 +414,15 @@ class Conversation:
     def question(self, suivante: str, relance: bool, message: str) -> str:
         """Le gros LLM formule la question ; si sa réponse sort du cadre, on garde la question prévue."""
         prevue = QUESTION[suivante]
-        if suivante == "marque_modele" and self.fiche.get("type_vehicule"):
+        if relance and self.essais.get(suivante, 0) >= 1 and suivante in AIDE:
+            prevue = AIDE[suivante]
+        elif suivante == "marque_modele" and self.fiche.get("type_vehicule"):
             prevue = f"Quels sont la marque et le modèle de votre {'moto' if self.fiche['type_vehicule'] == 'moto' else 'voiture'} ?"
         # « je n'ai pas compris » seulement si le client a vraiment tenté de répondre (pas pour un simple bonjour)
         salutation = re.search(r"\b(bonjour|salut|bonsoir|hello|devis|offre|assurance|aide)\b", simple(message))
-        if relance and suivante == "kilometrage_annuel" and any(n > 150000 for n in nombres(simple(message))):
+        if relance and suivante == "commune" and "arrondissement" in simple(message):
+            prevue = "Dans quelle ville se trouve cet arrondissement : Paris, Lyon, Marseille ?"
+        elif relance and suivante == "kilometrage_annuel" and any(n > 150000 for n in nombres(simple(message))):
             prevue = "Ce kilométrage me paraît très élevé pour une année. " + prevue
         elif relance and not salutation:
             prevue = "Je n'ai pas bien saisi votre réponse. " + prevue
