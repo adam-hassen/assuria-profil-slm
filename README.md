@@ -197,7 +197,13 @@ NEON_DATABASE_URL=postgresql://...     base des offres (sinon : dépôt assuria-
 SLM_MODEL=qwen2.5:1.5b                 petit modèle ; plus tard le modèle fine-tuné (ex. assuria-profil)
 LLM_MODEL=qwen3:8b                     gros LLM
 QUESTIONS_LLM=1                        0 pour poser les questions prévues sans passer par le gros LLM (plus rapide)
+REGCHECK_USER=...                      compte RegCheck (gratuit) pour retrouver le véhicule par sa plaque
 ```
+
+Plaque d'immatriculation : quand le conseiller demande le véhicule, une carte permet de saisir la plaque. L'API RegCheck
+renvoie la marque, le modèle, l'année et l'énergie, qui remplissent le dossier d'un coup (`app/plaque.py`). La plaque
+n'est pas enregistrée. Sans `REGCHECK_USER`, ou si la plaque n'est pas trouvée, le conseiller demande la marque et le
+modèle comme avant. Plaque de test gratuite : `EG258MA`.
 
 Limites : les prix sont des estimations (prix de base de l'offre × coefficients du profil), pas des devis ; la zone n'est
 connue que pour les villes présentes dans la table des profils.

@@ -157,6 +157,35 @@
   .coefs div { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--trait-fort); padding: 2px 0; }
   .coefs b { font-family: var(--mono); font-weight: 500; color: var(--encre); }
 
+  /* ---------- plaque d'immatriculation */
+  .plaque-carte { background: var(--carte); border: 1px solid var(--trait); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--ombre);
+                  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; animation: entree .25s ease-out both; }
+  .plaque-carte .consigne { flex: 1 1 100%; font-size: 13px; color: var(--doux); margin-bottom: -4px; }
+  .plaque { display: flex; align-items: stretch; height: 52px; border: 2px solid #1b1b1b; border-radius: 7px; background: #fff; overflow: hidden; flex: 0 1 300px; min-width: 0; }
+  .plaque .bande { flex: none; width: 34px; background: #003399; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 6px; gap: 3px; }
+  .plaque .bande svg { width: 18px; height: 18px; }
+  .plaque .bande b { font-size: 14px; font-weight: 700; line-height: 1; }
+  .plaque input { flex: 1; min-width: 0; border: none; outline: none; text-align: center; font-family: var(--mono); font-weight: 600; font-size: 24px;
+                  letter-spacing: .06em; text-transform: uppercase; color: #111; background: transparent; }
+  .plaque input::placeholder { color: #c9ced6; }
+  .plaque:focus-within { box-shadow: 0 0 0 3px rgba(0, 51, 153, .2); }
+  .plaque-actions { display: flex; align-items: center; gap: 14px; }
+  .bouton-plein { border: none; background: var(--marine); color: #fff; border-radius: 8px; padding: 0 18px; height: 42px; font-weight: 600; font-size: 14px; }
+  .bouton-plein:hover { background: var(--marine-2); }
+  .bouton-plein:disabled { opacity: .45; cursor: default; }
+  .lien { border: none; background: none; color: var(--doux); font-size: 13.5px; text-decoration: underline; text-underline-offset: 3px; padding: 0; }
+  .lien:hover { color: var(--marine); }
+
+  .vehicule { display: flex; gap: 16px; align-items: center; background: var(--carte); border: 1px solid var(--trait); border-left: 3px solid var(--vert);
+              border-radius: 12px; padding: 14px 18px; animation: entree .3s ease-out both; }
+  .vehicule img { flex: none; width: 120px; height: 72px; object-fit: contain; border-radius: 6px; background: var(--fond); }
+  .vehicule .v-texte { min-width: 0; }
+  .vehicule .v-titre { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--vert); display: flex; align-items: center; gap: 6px; }
+  .vehicule .v-titre svg { width: 13px; height: 13px; }
+  .vehicule .v-nom { font-weight: 700; font-size: 17px; margin-top: 2px; }
+  .vehicule .v-details { font-size: 13px; color: var(--doux); }
+  .vehicule .v-plaque { font-family: var(--mono); font-size: 12px; border: 1.5px solid #1b1b1b; border-left: 6px solid #003399; border-radius: 4px; padding: 0 6px; color: #111; margin-left: auto; flex: none; align-self: flex-start; }
+
   /* ---------- dossier (droite) */
   .dossier { background: var(--carte); border-left: 1px solid var(--trait); overflow-y: auto; display: flex; flex-direction: column; }
   .dossier-tete { padding: 24px 24px 18px; border-bottom: 1px solid var(--trait); }
@@ -216,6 +245,9 @@
     .bas { padding: 0 16px 16px; }
     .bulle { max-width: 88%; }
     .etapes-mobile i { width: 12px; }
+    .plaque { flex-basis: 100%; }
+    .vehicule { flex-wrap: wrap; }
+    .vehicule .v-plaque { margin-left: 0; }
     .offre { grid-template-columns: minmax(0, 1fr) auto; padding: 16px; }
     .rang-offre { display: none; }
     .offre-corps { grid-column: 1 / 3; }
@@ -326,6 +358,8 @@ const nf = new Intl.NumberFormat("fr-FR");
 const prixFmt = new Intl.NumberFormat("fr-FR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const DEMO = new URLSearchParams(location.search).has("demo");
 let id = null, fiche = {}, demandee = null, occupe = false, termine = false;
+let PLAQUE = false, sansPlaque = false;  // recherche par plaque disponible ? le client a-t-il choisi de s'en passer ?
+const PLAQUE_SIV = /\b([A-HJ-NP-TV-Z]{2})[\s-]?(\d{3})[\s-]?([A-HJ-NP-TV-Z]{2})\b/i;
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, texte) => { const e = document.createElement(tag); if (cls) e.className = cls; if (texte != null) e.textContent = texte; return e; };
@@ -408,11 +442,52 @@ function afficherProfil(nouvelleFiche, connues, total, prochaine) {
   afficherEtapes();
 
   const sugg = $("#suggestions"); sugg.replaceChildren();
+  if (prochaine !== "marque_modele") $("#saisie").placeholder = "Écrivez votre réponse…";
+  if (prochaine === "marque_modele" && PLAQUE && !sansPlaque) { sugg.append(cartePlaque()); return; }
   for (const t of (SUGGESTIONS[prochaine] || [])) {
     const b = el("button", "puce", t); b.type = "button";
     b.addEventListener("click", () => envoyer(t));
     sugg.append(b);
   }
+}
+
+// carte « plaque d'immatriculation » : proposée quand on demande le véhicule
+function cartePlaque() {
+  const carte = el("form", "plaque-carte");
+  const vehicule = fiche.type_vehicule === "moto" ? "moto" : "voiture";
+  carte.append(el("div", "consigne", `Gagnez du temps : entrez la plaque de votre ${vehicule}, nous retrouvons le modèle pour vous.`));
+  const p = el("div", "plaque");
+  const bande = el("div", "bande");
+  bande.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 20 20" fill="#ffcc00"><g>' +
+    Array.from({length: 12}, (_, i) => { const a = i * Math.PI / 6; return `<circle cx="${(10 + 7 * Math.cos(a)).toFixed(2)}" cy="${(10 + 7 * Math.sin(a)).toFixed(2)}" r="1.1"/>`; }).join("") + "</g></svg>");
+  bande.append(el("b", null, "F"));
+  const champ = el("input"); champ.placeholder = "AB-123-CD"; champ.maxLength = 12; champ.autocomplete = "off"; champ.setAttribute("aria-label", "Plaque d'immatriculation");
+  champ.addEventListener("input", () => {
+    const brut = champ.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    champ.value = /^[A-Z]{1,2}(\d{0,3}([A-Z]{0,2})?)?$/.test(brut)
+      ? [brut.slice(0, 2), brut.slice(2, 5), brut.slice(5, 7)].filter(Boolean).join("-") : champ.value.toUpperCase();
+  });
+  p.append(bande, champ);
+  const actions = el("div", "plaque-actions");
+  const ok = el("button", "bouton-plein", "Rechercher"); ok.type = "submit";
+  const non = el("button", "lien", "Je n'ai pas ma plaque"); non.type = "button";
+  non.addEventListener("click", () => { sansPlaque = true; carte.remove(); $("#saisie").placeholder = "Ex. : Peugeot 208, Yamaha MT-07…"; $("#saisie").focus(); });
+  actions.append(ok, non);
+  carte.append(p, actions);
+  carte.addEventListener("submit", (e) => { e.preventDefault(); if (champ.value.trim().length >= 5) envoyer(champ.value, "/api/plaque"); });
+  setTimeout(() => champ.focus(), 50);
+  return carte;
+}
+
+function afficherVehicule(v) {
+  const c = el("div", "vehicule");
+  if (v.image) { const i = el("img"); i.src = v.image; i.alt = ""; i.onerror = () => i.remove(); c.append(i); }
+  const t = el("div", "v-texte");
+  const titre = el("div", "v-titre"); titre.append(icone("i-coche"), document.createTextNode("Véhicule identifié"));
+  const details = [v.annee, v.energie && (LIBELLES[v.energie] || v.energie), v.carrosserie, v.version].filter(Boolean).join(" · ");
+  t.append(titre, el("div", "v-nom", v.nom), el("div", "v-details", details));
+  c.append(t, el("span", "v-plaque", v.plaque));
+  $("#fil").append(c); defiler();
 }
 
 function defiler() { const f = $("#fil"); f.scrollTop = f.scrollHeight; }
@@ -498,11 +573,12 @@ function afficherDemo(j) {
 }
 
 async function demarrer() {
-  occupe = false; termine = false;
+  occupe = false; termine = false; sansPlaque = false;
+  $("#saisie").placeholder = "Écrivez votre réponse…";
   $("#fil").replaceChildren();
   fiche = {};
   const r = await fetch("/api/conversation", {method: "POST"}).then((x) => x.json());
-  id = r.id;
+  id = r.id; PLAQUE = !!r.plaque;
   $("#reference").textContent = "AS-" + new Date().getFullYear() + "-" + r.id.slice(0, 6).toUpperCase();
   $("#date").textContent = new Date().toLocaleDateString("fr-FR", {day: "2-digit", month: "long", year: "numeric"});
   bulleConseiller(r.message);
@@ -511,15 +587,17 @@ async function demarrer() {
   $("#saisie").focus();
 }
 
-async function envoyer(texte) {
+async function envoyer(texte, url = "/api/message") {
   texte = texte.trim();
   if (!texte || occupe || !id) return;
+  // une plaque tapée directement dans la conversation au moment de la question du véhicule
+  if (url === "/api/message" && PLAQUE && demandee === "marque_modele" && PLAQUE_SIV.test(texte)) url = "/api/plaque";
   occupe = true; $("#envoyer").disabled = true; $("#saisie").value = "";
   $("#suggestions").replaceChildren();
-  bulleClient(texte);
+  bulleClient(url === "/api/plaque" ? "Ma plaque : " + texte.toUpperCase() : texte);
   let attente = ecrit(), bulle = null;
   try {
-    const rep = await fetch("/api/message", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id, texte})});
+    const rep = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id, texte})});
     if (!rep.ok) throw new Error((await rep.json()).detail || rep.statusText);
     const lecteur = rep.body.getReader(), dec = new TextDecoder();
     let reste = "";
@@ -533,6 +611,7 @@ async function envoyer(texte) {
         const e = JSON.parse(l);
         if (e.t === "fiche") afficherProfil(e.fiche, e.connues, e.total, e.demandee);
         else if (e.t === "demo") afficherDemo(e);
+        else if (e.t === "vehicule") { finEcrit(attente); afficherVehicule(e); attente = ecrit(); }
         else if (e.t === "message") { finEcrit(attente); attente = null; bulleConseiller(e.v); }
         else if (e.t === "offres") {
           finEcrit(attente); attente = null; termine = true; afficherEtapes();

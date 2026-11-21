@@ -331,6 +331,7 @@ class Conversation:
         self.demandee = "type_vehicule"
         self.essais: dict[str, int] = {}
         self.ignorees: set[str] = set()
+        self.verrouillees: set[str] = set()  # cases remplies par la plaque : le petit modèle n'y touche plus
         self.terminee = False
         self.journal: list[dict] = []
 
@@ -384,7 +385,8 @@ class Conversation:
         propose = nettoyer(lire_json(brut), self.texte_client(),
                            [m["content"] for m in self.historique if m["role"] == "user"])
         for c, v in propose.items():
-            self.fiche[c] = v
+            if c not in self.verrouillees:
+                self.fiche[c] = v
         # 2. la réponse à la question posée, lue directement
         direct = lire_reponse(self.demandee, message) if self.demandee else {}
         for voisin in self.PAIRES.get(self.demandee, []):  # une réponse donne souvent aussi la case voisine
@@ -394,7 +396,8 @@ class Conversation:
                 for c, v in lire_reponse(voisin, message).items():
                     direct.setdefault(c, v)
         for c, v in direct.items():
-            self.fiche[c] = v
+            if c not in self.verrouillees:
+                self.fiche[c] = v
         self.completer(deduire)
         if self.fiche.get("deja_assure") is False:
             self.fiche["annees_assure_total"] = 0
@@ -410,6 +413,20 @@ class Conversation:
         relance = not compris and suivante == self.demandee
         self.demandee = suivante
         return {"suivante": suivante, "relance": relance}
+
+    def vehicule_par_plaque(self, plaque: str, resultat: dict) -> dict:
+        """Remplit la fiche avec le véhicule trouvé grâce à la plaque (la plaque elle-même n'est pas gardée)."""
+        if resultat["ok"]:
+            v = resultat["vehicule"]
+            details = ", ".join(str(x) for x in (v["annee"], v["energie"]) if x)
+            self.historique.append({"role": "user", "content": f"Mon véhicule : {v['nom']}" + (f" ({details})" if details else "") + "."})
+            for c, val in resultat["fiche"].items():
+                self.fiche[c] = val
+                self.verrouillees.add(c)
+        self.journal.append({"petit_modele": "(plaque, pas de petit modèle)", "duree_s": 0, "reponse_brute": "",
+                             "retenu_du_petit_modele": {}, "lu_dans_la_reponse": resultat.get("fiche", {}), "erreur": None})
+        self.demandee = self.case_suivante()
+        return {"suivante": self.demandee, "relance": False}
 
     def question(self, suivante: str, relance: bool, message: str) -> str:
         """Le gros LLM formule la question ; si sa réponse sort du cadre, on garde la question prévue."""

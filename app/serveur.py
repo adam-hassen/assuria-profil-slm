@@ -9,6 +9,7 @@ Réglages dans le fichier .env à la racine (jamais envoyé sur GitHub) :
     NEON_DATABASE_URL=postgresql://...   base des offres
     SLM_MODEL=qwen2.5:1.5b               petit modèle qui remplit la fiche (plus tard : le modèle fine-tuné)
     LLM_MODEL=qwen3:8b                   gros LLM qui discute avec le client
+    REGCHECK_USER=...                    compte RegCheck pour retrouver le véhicule par sa plaque (facultatif)
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from pydantic import BaseModel  # noqa: E402
 
 import agent  # noqa: E402
 import offres  # noqa: E402
+import plaque  # noqa: E402
 
 SLM = os.environ.get("SLM_MODEL", "qwen2.5:1.5b")
 LLM = os.environ.get("LLM_MODEL", "qwen3:8b")
@@ -59,7 +61,7 @@ def nouvelle():
     cid = uuid.uuid4().hex
     conversations[cid] = agent.Conversation(SLM, LLM)
     return {"id": cid, "message": agent.ACCUEIL, **etat(conversations[cid]), "modeles": {"petit": SLM, "gros": LLM},
-            "donnees": offres.source()}
+            "donnees": offres.source(), "plaque": plaque.disponible()}
 
 
 class Message(BaseModel):
@@ -67,48 +69,81 @@ class Message(BaseModel):
     texte: str
 
 
-@app.post("/api/message")
-def message(m: Message):
-    c = conversations.get(m.id)
-    if c is None:
-        raise HTTPException(404, "Conversation inconnue : rechargez la page.")
-    texte = m.texte.strip()[:1000]
-
-    def flux():
-        ligne = lambda d: json.dumps(d, ensure_ascii=False, default=str) + "\n"
-        if c.terminee:
-            yield ligne({"t": "message", "v": "Votre recherche est terminée. Cliquez sur « Nouvelle simulation » pour recommencer."})
+def suite_de_conversation(c: agent.Conversation, suite: dict, texte: str, avant=()):
+    """Flux NDJSON envoyé à la page : fiche, coulisses, puis la question suivante ou les offres."""
+    ligne = lambda d: json.dumps(d, ensure_ascii=False, default=str) + "\n"
+    yield ligne({"t": "fiche", **etat(c)})
+    yield ligne({"t": "demo", **c.journal[-1]})
+    for e in avant:
+        yield ligne(e)
+    if suite["suivante"]:
+        q = c.question(suite["suivante"], suite["relance"], texte)
+        c.historique.append({"role": "assistant", "content": q})
+        yield ligne({"t": "message", "v": q})
+    else:
+        c.terminee = True
+        try:
+            trouvees, coefs, info = offres.chercher(c.fiche)
+        except Exception as err:
+            yield ligne({"t": "erreur", "v": f"Impossible de lire les offres ({err.__class__.__name__}). Vérifiez la connexion à la base."})
             yield ligne({"t": "fin"})
             return
-        suite = c.tour(texte, offres.deduire)
-        yield ligne({"t": "fiche", **etat(c)})
-        yield ligne({"t": "demo", **c.journal[-1]})
-        if suite["suivante"]:
-            q = c.question(suite["suivante"], suite["relance"], texte)
-            c.historique.append({"role": "assistant", "content": q})
-            yield ligne({"t": "message", "v": q})
-        else:
-            c.terminee = True
+        yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info})
+        if trouvees:
+            complet = ""
             try:
-                trouvees, coefs, info = offres.chercher(c.fiche)
-            except Exception as err:
-                yield ligne({"t": "erreur", "v": f"Impossible de lire les offres ({err.__class__.__name__}). Vérifiez la connexion à la base."})
-                yield ligne({"t": "fin"})
-                return
-            yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info})
-            if trouvees:
-                complet = ""
-                try:
-                    for morceau in c.recommandation(trouvees):
-                        complet += morceau
-                        yield ligne({"t": "jeton", "v": morceau})
-                except Exception:
-                    complet = (f"Je vous recommande {trouvees[0]['assureur']} ({trouvees[0]['produit']}), estimé à "
-                               f"{trouvees[0]['prix_mensuel_estime_eur']} € par mois. Ces prix sont des estimations.")
-                    yield ligne({"t": "message", "v": complet})
-                c.historique.append({"role": "assistant", "content": complet})
-            else:
-                yield ligne({"t": "message", "v": info or "Je n'ai trouvé aucune offre correspondante dans notre base."})
-        yield ligne({"t": "fin"})
+                for morceau in c.recommandation(trouvees):
+                    complet += morceau
+                    yield ligne({"t": "jeton", "v": morceau})
+            except Exception:
+                complet = (f"Je vous recommande {trouvees[0]['assureur']} ({trouvees[0]['produit']}), estimé à "
+                           f"{trouvees[0]['prix_mensuel_estime_eur']} € par mois. Ces prix sont des estimations.")
+                yield ligne({"t": "message", "v": complet})
+            c.historique.append({"role": "assistant", "content": complet})
+        else:
+            yield ligne({"t": "message", "v": info or "Je n'ai trouvé aucune offre correspondante dans notre base."})
+    yield ligne({"t": "fin"})
 
-    return StreamingResponse(flux(), media_type="application/x-ndjson")
+
+def terminee():
+    yield json.dumps({"t": "message", "v": "Votre recherche est terminée. Cliquez sur « Nouvelle simulation » pour recommencer."},
+                     ensure_ascii=False) + "\n"
+    yield json.dumps({"t": "fin"}) + "\n"
+
+
+def conversation(cid: str) -> agent.Conversation:
+    c = conversations.get(cid)
+    if c is None:
+        raise HTTPException(404, "Conversation inconnue : rechargez la page.")
+    return c
+
+
+@app.post("/api/message")
+def message(m: Message):
+    c = conversation(m.id)
+    texte = m.texte.strip()[:1000]
+    if c.terminee:
+        return StreamingResponse(terminee(), media_type="application/x-ndjson")
+    suite = c.tour(texte, offres.deduire)
+    return StreamingResponse(suite_de_conversation(c, suite, texte), media_type="application/x-ndjson")
+
+
+@app.post("/api/plaque")
+def recherche_plaque(m: Message):
+    """Le client a saisi sa plaque : on retrouve le véhicule et on passe à la question suivante."""
+    c = conversation(m.id)
+    if c.terminee:
+        return StreamingResponse(terminee(), media_type="application/x-ndjson")
+    p = plaque.trouver_plaque(m.texte) or m.texte.strip().upper()[:12]
+    resultat = plaque.chercher(p, c.fiche.get("type_vehicule"))
+    suite = c.vehicule_par_plaque(p, resultat)
+    if resultat["ok"]:
+        avant = [{"t": "vehicule", "plaque": p, **resultat["vehicule"]}]
+        texte = f"Mon véhicule est une {resultat['vehicule']['nom']}."
+        return StreamingResponse(suite_de_conversation(c, suite, texte, avant), media_type="application/x-ndjson")
+    v = ("Je n'ai pas retrouvé de véhicule avec cette plaque. Vérifiez-la et réessayez, "
+         "ou indiquez-moi directement la marque et le modèle.")
+    c.historique.append({"role": "assistant", "content": v})
+    flux = (json.dumps(d, ensure_ascii=False, default=str) + "\n"
+            for d in ({"t": "fiche", **etat(c)}, {"t": "demo", **c.journal[-1]}, {"t": "message", "v": v}, {"t": "fin"}))
+    return StreamingResponse(flux, media_type="application/x-ndjson")
