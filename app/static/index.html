@@ -344,9 +344,9 @@
 const ETAPES = [
   ["Véhicule", [["type_vehicule", "Type"], ["marque_modele", "Modèle"], ["annee_mise_en_circulation", "Année"], ["energie", "Énergie"], ["mode_acquisition", "Financement"]]],
   ["Conducteur", [["age", "Âge"], ["commune", "Ville"], ["pays_residence", "Pays"]]],
-  ["Permis", [["type_permis", "Catégorie"], ["annees_permis", "Ancienneté"], ["conduite_accompagnee", "Conduite accompagnée", true], ["pays_permis", "Pays du permis"]]],
-  ["Antécédents", [["deja_assure", "Déjà assuré"], ["bonus_malus", "Bonus-malus"], ["sinistres_responsables_36_mois", "Sinistres responsables (3 ans)"], ["resiliation_assureur", "Résiliation"]]],
-  ["Utilisation", [["usage", "Usage"], ["kilometrage_annuel", "Kilométrage"], ["stationnement_nuit", "Stationnement la nuit"]]],
+  ["Permis", [["type_permis", "Catégorie"], ["annees_permis", "Ancienneté"], ["pays_permis", "Pays du permis"]]],
+  ["Antécédents", [["deja_assure", "Déjà assuré"], ["conduite_accompagnee", "Conduite accompagnée", true], ["bonus_malus", "Bonus-malus"], ["sinistres_responsables_36_mois", "Sinistres responsables (3 ans)"], ["resiliation_assureur", "Résiliation"]]],
+  ["Utilisation", [["conducteur_secondaire", "Autre conducteur"], ["usage", "Usage"], ["kilometrage_annuel", "Kilométrage"], ["stationnement_nuit", "Stationnement la nuit"]]],
   ["Couverture", [["formule_souhaitee", "Formule"], ["franchise_souhaitee", "Franchise", true], ["budget_mensuel_max", "Budget maximum"]]],
 ];
 const LIBELLES = {
@@ -355,7 +355,8 @@ const LIBELLES = {
   tiers: "Au tiers", tiers_plus: "Intermédiaire", tous_risques: "Tous risques", essence: "Essence", diesel: "Diesel",
   hybride: "Hybride", electrique: "Électrique", comptant: "Comptant", credit: "Crédit", LOA_LLD: "LOA / LLD",
   basse: "Basse", standard: "Standard", haute: "Haute", sinistres: "Oui, pour sinistres", non_paiement: "Oui, pour non-paiement",
-  fausse_declaration: "Oui, fausse déclaration",
+  fausse_declaration: "Oui, fausse déclaration", aucun: "Seul conducteur", conjoint: "Conjoint",
+  enfant_jeune_conducteur: "Enfant jeune conducteur", parent: "Parent",
 };
 const PASSER = "Je préfère ne pas répondre";
 const SUGGESTIONS = {
@@ -366,10 +367,11 @@ const SUGGESTIONS = {
   pays_permis: ["Oui, dans mon pays"],
   resiliation_assureur: ["Non, jamais", "Oui, pour sinistres", "Oui, pour non-paiement"],
   franchise_souhaitee: ["Basse", "Standard", "Haute"],
+  conducteur_secondaire: ["Oui, je suis seul", "Mon conjoint aussi", "Un enfant jeune conducteur"],
   type_vehicule: ["Une voiture", "Une moto"],
   deja_assure: ["Oui", "Non, jamais"],
   sinistres_responsables_36_mois: ["Aucun sinistre", "1 sinistre responsable"],
-  usage: ["Privé", "Trajet travail", "Professionnel"],
+  usage: ["Privé", "Trajet travail", "Professionnel", "Un peu de tout"],
   stationnement_nuit: ["Garage fermé", "Parking privé", "Dans la rue"],
   formule_souhaitee: ["Au tiers", "Intermédiaire", "Tous risques"],
   type_permis: ["Permis B", "Permis A", "Permis A2"],

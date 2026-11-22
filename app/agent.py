@@ -38,12 +38,13 @@ QUESTIONS = [
     ("pays_residence", "Dans quel pays se trouve cette ville ?"),
     ("type_permis", "Quel permis avez-vous : B, A, A2… ?"),
     ("annees_permis", "Depuis quelle année avez-vous votre permis ?"),
-    ("conduite_accompagnee", "Avez-vous passé votre permis en conduite accompagnée (AAC) ?"),
     ("pays_permis", "Avez-vous obtenu votre permis dans votre pays de résidence ? Sinon, dans quel pays ?"),
     ("deja_assure", "Avez-vous déjà été assuré en tant que conducteur principal ?"),
+    ("conduite_accompagnee", "Avez-vous passé votre permis en conduite accompagnée (AAC) ?"),
     ("bonus_malus", "Quel est votre bonus-malus ? Il figure sur votre relevé d'information (par exemple 0,85 ou 50 % de bonus)."),
     ("sinistres_responsables_36_mois", "Avez-vous eu des sinistres ces trois dernières années ? Si oui, combien dont vous étiez responsable ?"),
     ("resiliation_assureur", "Un assureur a-t-il déjà résilié votre contrat (pour sinistres, non-paiement ou fausse déclaration) ?"),
+    ("conducteur_secondaire", "Êtes-vous le seul conducteur du véhicule ? Sinon, qui d'autre le conduit : conjoint, enfant jeune conducteur, parent ?"),
     ("usage", "Comment utilisez-vous le véhicule : usage privé, trajets domicile-travail ou usage professionnel ?"),
     ("kilometrage_annuel", "Combien de kilomètres parcourez-vous environ par an ?"),
     ("stationnement_nuit", "Où le véhicule est-il garé la nuit : garage fermé, parking privé ou dans la rue ?"),
@@ -78,7 +79,7 @@ CRITERES = {"prix": "le prix", "garanties": "les garanties", "reputation": "la r
 QUESTION_CRITERE = ("Votre profil est complet. Avant de vous présenter les offres, qu'est-ce qui compte le plus pour vous : "
                     "le prix, les garanties, ou la réputation de l'assureur (avis des clients) ?")
 
-FACULTATIVES = {"annee_mise_en_circulation", "energie", "mode_acquisition", "conduite_accompagnee", "pays_permis",
+FACULTATIVES = {"conducteur_secondaire", "annee_mise_en_circulation", "energie", "mode_acquisition", "conduite_accompagnee", "pays_permis",
                 "resiliation_assureur", "franchise_souhaitee", "bonus_malus", "kilometrage_annuel", "pays_residence", "sinistres_responsables_36_mois"}
 VILLES_ARRONDISSEMENTS = {"paris": "Paris", "lyon": "Lyon", "marseille": "Marseille"}
 ACCUEIL = ("Bonjour, je suis votre conseiller AssurIA. Je vais vous poser quelques questions pour trouver les offres "
@@ -230,8 +231,11 @@ def lire_reponse(champ: str, texte: str) -> dict:
         if vals:
             return {"sinistres_responsables_36_mois": vals[0]}
     if champ == "usage":
-        for mot, v in [(r"vtc", "vtc"), (r"travail|boulot|bureau|taf", "prive_trajet_travail"),
-                       (r"\bpro\b|professionn|clients?|metier|tournee", "professionnel"),
+        # plusieurs usages : on garde le plus large (le professionnel couvre aussi le privé et les trajets)
+        if re.search(r"\b(les (deux|trois|3)|tout|tous|un peu de tout)\b", s):
+            return {"usage": "professionnel"}
+        for mot, v in [(r"vtc", "vtc"), (r"\bpro\b|professionn|clients?|metier|tournee", "professionnel"),
+                       (r"travail|boulot|bureau|taf", "prive_trajet_travail"),
                        (r"loisir|balade|week|vacances", "loisirs"), (r"prive|perso|courses|famille", "prive")]:
             if re.search(mot, s):
                 return {"usage": v}
@@ -280,7 +284,7 @@ def lire_reponse(champ: str, texte: str) -> dict:
                 return {"pays_permis": p}
         if re.search(r"\b(oui|ouais|ici|meme|bien sur)\b", s):
             return {"pays_permis": "__residence__"}
-        m = re.search(r"\b(?:au|aux|en|du|des|a l'|de l')\s*([a-z][a-z' -]{2,25})$", s.strip(" .!"))
+        m = re.search(r"\b(?:au|aux|en|du|des|de|d'|a l'|de l')\s*([a-z][a-z' -]{2,25})$", s.strip(" .!"))
         if m and not REFUS.search(s):
             return {"pays_permis": " ".join(w.capitalize() for w in m.group(1).split())}
     if champ == "resiliation_assureur":
@@ -290,6 +294,12 @@ def lire_reponse(champ: str, texte: str) -> dict:
                 return {"resiliation_assureur": v}
         if re.search(r"\b(non|jamais|aucun|pas)\b", s):
             return {"resiliation_assureur": "non"}
+    if champ == "conducteur_secondaire":
+        for mot, v in [(r"enfant|fils|fille|jeune conducteur|ado", "enfant_jeune_conducteur"),
+                       (r"conjoint|femme|mari|compagn|copin|epou", "conjoint"), (r"pere|mere|parent|papa|maman", "parent"),
+                       (r"\b(oui|seul|que moi|juste moi|personne|uniquement moi)\b", "aucun")]:
+            if re.search(mot, s):
+                return {"conducteur_secondaire": v}
     if champ == "franchise_souhaitee":
         for mot, v in [(r"basse|faible|petite|minimum|la plus basse", "basse"), (r"haute|elevee|grosse|forte|maximum", "haute"),
                        (r"standard|normale|moyenne|classique|peu importe|egal", "standard")]:
@@ -382,6 +392,8 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
                     continue
             else:
                 v = str(v).strip()
+                if c.startswith("pays"):
+                    v = "-".join(" ".join(w.capitalize() for w in x.split()) for x in v.split("-"))
                 if c in ("commune", "marque_modele") and simple(v).split(" ")[0] not in client:
                     continue
                 if c == "commune" and (re.search(r"arrondissement|^\d", simple(v)) or len(v) > 40
@@ -439,8 +451,10 @@ class Conversation:
         f = self.fiche
         if champ in ("bonus_malus", "sinistres_responsables_36_mois", "resiliation_assureur"):
             return f.get("deja_assure") is not False
-        if champ == "conduite_accompagnee":  # la conduite accompagnée ne réduit la surprime que les 3 premières années
-            return f.get("type_vehicule") != "moto" and f.get("annees_permis") is not None and f["annees_permis"] <= 2
+        if champ == "conduite_accompagnee":
+            # la conduite accompagnée réduit la surprime des conducteurs novices : moins de 3 ans de permis ou jamais assuré
+            novice = (f.get("annees_permis") is not None and f["annees_permis"] <= 2) or f.get("deja_assure") is False
+            return f.get("type_vehicule") != "moto" and novice
         if champ == "franchise_souhaitee":  # au tiers, pas de garantie dommages, donc pas de franchise à choisir
             return f.get("formule_souhaitee") != "tiers"
         return True

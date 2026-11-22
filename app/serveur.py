@@ -138,7 +138,7 @@ def suite_de_conversation(c: agent.Conversation, suite: dict, texte: str, avant=
                     "sinistres_responsables_36_mois": "sinistres", "deja_assure": "antécédents", "type_permis": "permis",
                     "marque_modele": "modèle", "annee_mise_en_circulation": "année du véhicule", "energie": "énergie",
                     "mode_acquisition": "financement", "conduite_accompagnee": "conduite accompagnée",
-                    "pays_permis": "pays du permis", "resiliation_assureur": "résiliation", "franchise_souhaitee": "franchise"}
+                    "pays_permis": "pays du permis", "resiliation_assureur": "résiliation", "franchise_souhaitee": "franchise", "conducteur_secondaire": "autres conducteurs"}
         manquantes = [libelles.get(x, x) for x in sorted(c.ignorees)]
         yield ligne({"t": "fiche", **etat(c)})
         yield ligne({"t": "offres", "offres": trouvees, "coefs": coefs, "info": info if trouvees else "",

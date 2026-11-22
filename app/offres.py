@@ -234,6 +234,9 @@ def chercher(fiche: dict, n: int | None = None) -> tuple[list[dict], dict, str]:
         message = "Contrat résilié par un assureur : seules les offres pour conducteurs résiliés sont proposées."
     elif coef_bonus_malus(fiche) <= 1.0:  # les produits réservés aux conducteurs malussés ne concernent pas ce client
         choix = choix[~specialise]
+    if fiche.get("conducteur_secondaire") == "enfant_jeune_conducteur":
+        message = (message + " " if message else "") + ("Un jeune conducteur déclaré en conducteur secondaire augmente "
+                   "généralement la cotisation : l'estimation ne l'inclut pas, l'assureur l'ajoutera au devis.")
     if fiche.get("mode_acquisition") in ("credit", "LOA_LLD") and fiche.get("formule_souhaitee") == "tiers":
         message = (message + " " if message else "") + ("Véhicule financé à crédit ou en LOA/LLD : l'organisme de "
                    "financement exige souvent une assurance tous risques, vérifiez votre contrat.")
