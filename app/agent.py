@@ -42,7 +42,7 @@ QUESTIONS = [
     ("pays_residence", "Dans quel pays se trouve cette ville ?"),
     ("type_permis", "Quel permis avez-vous : B, A, A2… ?"),
     ("annees_permis", "Depuis quelle année avez-vous votre permis ?"),
-    ("pays_permis", "Avez-vous obtenu votre permis dans votre pays de résidence ? Sinon, dans quel pays ?"),
+    ("pays_permis", "Où avez-vous obtenu votre permis : en France, dans un autre pays de l'Union européenne, ou hors de l'Union européenne ?"),
     ("deja_assure", "Avez-vous déjà été assuré en tant que conducteur principal ?"),
     ("conduite_accompagnee", "Avez-vous passé votre permis en conduite accompagnée (AAC) ?"),
     ("bonus_malus", "Quel est votre bonus-malus ? Il figure sur votre relevé d'information (par exemple 0,85 ou 50 % de bonus)."),
@@ -67,7 +67,7 @@ AIDE = {
     "budget_mensuel_max": "Quel montant maximum par mois, par exemple « 60 € » ?",
     "annee_mise_en_circulation": "En quelle année le véhicule a-t-il été mis en circulation, par exemple « 2019 » ? Elle figure sur la carte grise.",
     "resiliation_assureur": "Pour quelle raison le contrat a-t-il été résilié : sinistres, non-paiement ou fausse déclaration ?",
-    "pays_permis": "Dans quel pays avez-vous obtenu votre permis, par exemple « France » ?",
+    "pays_permis": "Dans quel pays avez-vous obtenu votre permis, par exemple « France », « Belgique » ou « Maroc » ?",
 }
 # cases sans lesquelles on peut quand même chercher des offres : on n'insiste pas plus de deux fois
 # le client peut refuser de répondre ; seul le type de véhicule est indispensable pour chercher des offres
@@ -283,6 +283,10 @@ def lire_reponse(champ: str, texte: str) -> dict:
         if re.search(r"\b(oui|ouais|aac|accompagnee|accompagne|anticipe)\b", s):
             return {"conduite_accompagnee": True}
     if champ == "pays_permis":
+        if re.search(r"\bhors\b|en dehors|pas (dans l'|en )?(europe|ue\b|union)|non europeen", s):
+            return {"pays_permis": "Hors Union européenne"}
+        if re.search(r"\b(ue|europe|union europeenne|europeen|autre pays de l)", s) and not re.search(r"\bfrance\b", s):
+            return {"pays_permis": "Union européenne"}
         for p in PAYS:
             if simple(p) in s:
                 return {"pays_permis": p}
@@ -398,6 +402,8 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
                 v = str(v).strip()
                 if c.startswith("pays"):
                     v = "-".join(" ".join(w.capitalize() for w in x.split()) for x in v.split("-"))
+                if c == "pays_permis" and simple(v) not in client:  # « France » deviné, jamais dit par le client
+                    continue
                 if c in ("commune", "marque_modele") and simple(v).split(" ")[0] not in client:
                     continue
                 if c == "commune" and (re.search(r"arrondissement|^\d", simple(v)) or len(v) > 40

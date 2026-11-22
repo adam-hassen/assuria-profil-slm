@@ -44,7 +44,7 @@ PERMIS_HORS_UE = 1.1
 UE = {"France", "Belgique", "Luxembourg", "Allemagne", "Pays-Bas", "Italie", "Espagne", "Portugal", "Irlande", "Autriche",
       "Suède", "Danemark", "Finlande", "Pologne", "Tchéquie", "République tchèque", "Slovaquie", "Hongrie", "Roumanie",
       "Bulgarie", "Grèce", "Croatie", "Slovénie", "Estonie", "Lettonie", "Lituanie", "Malte", "Chypre",
-      "Norvège", "Islande", "Liechtenstein", "Suisse"}  # Union européenne + EEE + Suisse : permis reconnus sans surprime
+      "Norvège", "Islande", "Liechtenstein", "Suisse", "Union européenne"}  # Union européenne + EEE + Suisse : permis reconnus sans surprime
 # valeur d'une unité de devise en euros (approximatif, comme pour les profils)
 TAUX_EUR = {"EUR": 1.0, "GBP": 1.17, "CHF": 1.07, "PLN": 0.235, "SEK": 0.087, "NOK": 0.085, "DKK": 0.134, "CZK": 0.04, "RON": 0.20}
 
