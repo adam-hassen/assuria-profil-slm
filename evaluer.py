@@ -120,7 +120,8 @@ def egal(champ: str, attendu, predit) -> bool:
 
 # --------------------------------------------------------------------------- évaluation
 def evaluer(args):
-    exemples = [json.loads(l) for l in open(TEST, encoding="utf-8")]
+    fichier = DOSSIER / "donnees" / ("test_ecrit_conversations.jsonl" if args.jeu == "ecrit" else "test_conversations.jsonl")
+    exemples = [json.loads(l) for l in open(fichier, encoding="utf-8")]
     if args.n:
         exemples = exemples[: args.n]
     appeler = charger_backend(args.backend, args.modele, args.url)
@@ -210,6 +211,8 @@ if __name__ == "__main__":
     ap.add_argument("--nom", help="nom du dossier de résultats")
     ap.add_argument("--n", type=int, default=0, help="évaluer seulement les n premières conversations (essai rapide)")
     ap.add_argument("--url", default="http://localhost:11434", help="adresse d'Ollama")
+    ap.add_argument("--jeu", choices=["simule", "ecrit"], default="simule",
+                    help="simule : 500 conversations simulées ; ecrit : 30 conversations écrites à la main")
     ap.add_argument("--comparer", action="store_true")
     a = ap.parse_args()
     if a.comparer:

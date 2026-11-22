@@ -33,8 +33,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--modele", default="Qwen/Qwen2.5-1.5B-Instruct")
     ap.add_argument("--epochs", type=float, default=1.0)
-    ap.add_argument("--lot", type=int, default=4)
-    ap.add_argument("--max-len", type=int, default=2048)
+    ap.add_argument("--lot", type=int, default=1)
+    ap.add_argument("--accumulation", type=int, default=4, help="lot effectif = lot x accumulation")
+    ap.add_argument("--max-len", type=int, default=3072)
     a = ap.parse_args()
 
     nom = a.modele.split("/")[-1].lower()
@@ -43,18 +44,26 @@ def main():
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
+    coupes = [0]
+
     def encoder(messages):
         # la perte ne porte que sur la réponse (le JSON), comme --mask-prompt avec MLX
         invite = tok.apply_chat_template(messages[:2], tokenize=False, add_generation_prompt=True)
         reponse = messages[2]["content"] + tok.eos_token
         ids_invite = tok(invite, add_special_tokens=False)["input_ids"]
         ids_reponse = tok(reponse, add_special_tokens=False)["input_ids"]
-        ids = (ids_invite + ids_reponse)[: a.max_len]
-        labels = ([-100] * len(ids_invite) + ids_reponse)[: a.max_len]
+        if len(ids_invite) + len(ids_reponse) > a.max_len:
+            # trop long : on retire le début de la conversation, jamais la réponse attendue
+            coupes[0] += 1
+            garde = a.max_len - len(ids_reponse)
+            ids_invite = ids_invite[:200] + ids_invite[-(garde - 200):]
+        ids = ids_invite + ids_reponse
+        labels = [-100] * len(ids_invite) + ids_reponse
         return {"input_ids": ids, "labels": labels}
 
     train = Dataset.from_list([encoder(m) for m in lire("train")])
     valid = Dataset.from_list([encoder(m) for m in lire("valid")])
+    print(f"{len(train)} exemples d'entraînement, {len(valid)} de validation, {coupes[0]} raccourcis (plus de {a.max_len} tokens)")
 
     def assembler(lot):
         n = max(len(x["input_ids"]) for x in lot)
@@ -76,7 +85,7 @@ def main():
 
     args = TrainingArguments(
         output_dir=str(sortie / "checkpoints"), num_train_epochs=a.epochs,
-        per_device_train_batch_size=a.lot, per_device_eval_batch_size=a.lot, gradient_accumulation_steps=1,
+        per_device_train_batch_size=a.lot, per_device_eval_batch_size=a.lot, gradient_accumulation_steps=a.accumulation,
         learning_rate=1e-4, lr_scheduler_type="cosine", warmup_ratio=0.03,
         logging_steps=20, eval_strategy="steps", eval_steps=250, save_steps=250, save_total_limit=2,
         bf16=bf16, fp16=not bf16, report_to="none", remove_unused_columns=False)

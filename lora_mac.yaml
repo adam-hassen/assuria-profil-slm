@@ -1,9 +1,9 @@
 # Réglages du fine-tuning LoRA avec MLX (Mac), identiques à entrainer_gpu.py
 fine_tune_type: lora
 num_layers: -1              # LoRA sur les 28 couches du modèle
-batch_size: 4
+batch_size: 2
 learning_rate: 1.0e-4
-max_seq_length: 2048
+max_seq_length: 3072      # les conversations de l'app font jusqu'à ~2 300 tokens
 mask_prompt: true           # la perte ne porte que sur la réponse JSON
 grad_checkpoint: true
 steps_per_report: 20

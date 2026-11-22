@@ -31,8 +31,10 @@ ainsi à ne rien inventer, ce qu'on mesure à part (taux d'« inventions »).
 | Fichier | Rôle |
 | --- | --- |
 | `schema.py` | Les 28 champs du profil et la consigne donnée au modèle (la même pour tous les modèles comparés) |
-| `generer_conversations.py` | Crée les conversations à partir des profils, avec le profil attendu |
-| `donnees/` | `train.jsonl` (6 000), `valid.jsonl` (500), `test.jsonl` (500) au format chat, et `test_conversations.jsonl` pour l'évaluation |
+| `simuler_clients.py` | Crée les conversations (version 2) en rejouant le déroulé de l'application avec des clients simulés |
+| `test_ecrit.py` | 30 conversations de test écrites à la main (cas difficiles), avec le profil attendu |
+| `generer_conversations.py` | Première version des conversations (modèles de phrases), gardée pour ses banques d'expressions |
+| `donnees/` | `train.jsonl` (6 000), `valid.jsonl` (500), `test.jsonl` (500) au format chat, `test_conversations.jsonl` pour l'évaluation, `test_ecrit*.jsonl` (30 conversations écrites à la main) |
 | `entrainer_mac.sh`, `lora_mac.yaml` | Fine-tuning LoRA sur Mac Apple Silicon avec MLX (réglages dans le YAML), puis fusion du modèle |
 | `entrainer_gpu.py` | Même fine-tuning sur GPU NVIDIA (Google Colab, Kaggle) |
 | `vers_ollama.sh` | Convertit le modèle fine-tuné en GGUF et le crée dans Ollama |
@@ -40,30 +42,35 @@ ainsi à ne rien inventer, ce qu'on mesure à part (taux d'« inventions »).
 
 ## Les conversations
 
-Chaque profil donne une conversation de devis en français. Pour que le modèle généralise, elle varie :
+**Version 2 (`simuler_clients.py`).** La première version posait ses propres questions, souvent plusieurs à la fois, et
+le client répondait par des phrases complètes (« le permis B depuis 2015 »). Dans l'application, le conseiller pose une
+question à la fois, dans son ordre, et les clients répondent court (« 2020 », « Comptant », « le mans ») : le modèle de
+base échouait justement sur ces réponses. La version 2 rejoue exactement le déroulé de l'application :
 
-- plusieurs formulations par question et par réponse, registre poli ou familier ;
-- le client donne souvent plusieurs informations d'un coup au début (45 %) ;
-- des réponses à convertir : « permis depuis 2015 » → 11 ans, « bonus de 50 % » → CRM 0.50, « dans la rue » → voie_publique ;
-- des corrections (« ah non pardon, 12 000 »), des « je ne sais pas », des questions oubliées par le conseiller ;
-- 20 % de conversations coupées en cours de route : le profil est alors partiel ;
-- des clients de 20 pays européens, avec des permis du monde entier, et le bonus-malus de chaque pays
-  (classe di merito, SF-Klasse, degré belge, no claims bonus…).
+- mêmes questions, même ordre, mêmes questions sautées (pas de franchise au tiers, pas d'antécédents pour un premier
+  contrat, conduite accompagnée pour les conducteurs novices…), message ajouté par la plaque d'immatriculation ;
+- cinq styles de clients : court (30 %), phrases (30 %), familier avec fautes et sans accents (20 %), bavard qui ajoute
+  des informations (12 %), hésitant qui refuse souvent (8 %) ;
+- refus (« je préfère ne pas répondre ») et « je ne sais pas » : la case reste vide ;
+- réponses à convertir : « 2020 » → 6 ans de permis, « je suis né en 1990 » → 36 ans, « je l'ai eu à 18 ans »,
+  « elle a 5 ans », « 12k », « un peu de tout » → usage professionnel ;
+- réponses à côté (« c'est obligatoire ? ») suivies de la relance du conseiller ;
+- clients de 20 pays européens, permis du monde entier, bonus-malus de chaque pays ;
+- la moitié des exemples sont coupés juste après un message du client, avec le profil attendu à ce moment-là : c'est ce
+  que voit le petit modèle dans l'application, qui l'appelle après chaque message.
 
-Exemple (extrait) :
+Règle d'étiquetage : le profil attendu ne contient que ce que le client a dit (ou ce qui s'en déduit sans doute
+possible, comme le pays d'une ville).
 
-```
-Conseiller : Bonjour, bienvenue. Faisons votre devis ensemble. Parlez-moi un peu de votre besoin.
-Client : Salut, alors voilà : à Meslan, B, depuis 11 ans, je m'en sers pour mon métier, déplacements pro, ma voiture, une Renault Espace, c'est une hybride.
-Conseiller : Merci. Quelle est sa date de première mise en circulation ?
-Client : Première mise en circulation en 2019.
-Conseiller : Super. Dans quel pays avez-vous obtenu votre permis ?
-Client : En Chine, il est reconnu ici.
-```
+**Jeu de test écrit à la main (`test_ecrit.py`).** 30 conversations jouées comme des clients différents, qui ne sortent
+d'aucun générateur : étudiant qui écrit en SMS, retraité qui fait des phrases, client qui refuse presque tout, résidents
+allemand, italien, britannique ou polonais, permis marocain ou algérien, conducteur résilié, chauffeur VTC, nombres en
+lettres, année de naissance au lieu de l'âge, conversations interrompues. Il sert à vérifier que le modèle ne réussit
+pas seulement sur les tournures de ses données d'entraînement.
 
-Limite à dire dans le rapport : les conversations sont construites à partir de modèles de phrases, pas écrites par de
-vrais clients. Le modèle risque d'être meilleur sur ces conversations que sur de vraies. Pour le vérifier, on peut ajouter
-au jeu de test quelques conversations écrites à la main, ou jouées par un gros LLM dans le rôle du client.
+Limite à dire dans le rapport : toutes ces conversations sont simulées (générateur ou jeu de rôle), aucune ne vient de
+vrais clients. Pour une mesure sur de vraies conversations, il faudra faire jouer des volontaires dans l'application à
+partir de fiches personnage.
 
 ## Lancer le fine-tuning
 
@@ -103,12 +110,14 @@ ollama run assuria-profil
 
 ## Évaluer et comparer
 
-Tous les modèles reçoivent la même consigne et les mêmes 500 conversations de test.
+Tous les modèles reçoivent la même consigne et les mêmes conversations de test : les 500 conversations simulées
+(par défaut) et les 30 conversations écrites à la main (`--jeu ecrit`).
 
 ```bash
 # modèle de base, sans entraînement (point de départ)
 ollama pull qwen2.5:1.5b
 python3 evaluer.py --backend ollama --modele qwen2.5:1.5b --nom qwen1.5b-base
+python3 evaluer.py --backend ollama --modele qwen2.5:1.5b --nom qwen1.5b-base-ecrit --jeu ecrit
 
 # modèle fine-tuné
 python3 evaluer.py --backend ollama --modele assuria-profil --nom qwen1.5b-finetune
@@ -150,7 +159,8 @@ fin, comme ici : c'est ce qui est mesuré.
 ## Régénérer les données
 
 ```bash
-python3 generer_conversations.py --profils ../assuria-projet/data/objectif1/profils/profils.parquet
+python3 simuler_clients.py --profils ../assuria-projet/data/objectif1/profils/profils.parquet
+python3 test_ecrit.py
 ```
 
 Les profils viennent du dépôt du groupe : cloner [assuria-projet](https://github.com/adam-hassen/assuria-projet) à côté de ce dépôt.
