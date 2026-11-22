@@ -17,7 +17,9 @@ from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
+from datetime import date
 
+ANNEE = date.today().year
 LOCAL = Path(os.environ.get("ASSURIA_DATA", Path(__file__).resolve().parents[2] / "assuria-projet" / "data" / "objectif1"))
 
 # coefficients du simulateur (auto / moto)
@@ -29,6 +31,20 @@ AGE = {"auto": [(30, 1.208), (45, 1.004), (60, 1.0), (70, 0.886), (200, 1.09)],
        "moto": [(30, 1.818), (45, 1.247), (60, 1.0), (70, 0.921), (200, 0.921)]}
 KM = [(5000, 0.85), (10000, 0.93), (15000, 1.0), (20000, 1.07), (30000, 1.15), (10 ** 9, 1.25)]
 JEUNE_CONDUCTEUR = {0: 2.0, 1: 1.5, 2: 1.25}
+# avec la conduite accompagnée, la surprime est réduite de moitié la 1re année et s'arrête après 2 ans
+JEUNE_CONDUCTEUR_AAC = {0: 1.5, 1: 1.25, 2: 1.0}
+# coefficients appris sur des sinistres réels (simulation/coefficients.json du projet : freMTPL2 pour l'auto,
+# swmotorcycle pour la moto) et règles du marché
+ENERGIE = {"auto": {"diesel": 1.1932}, "moto": {}}
+AGE_VEHICULE = {"auto": [(0, 0.9927), (2, 0.9749), (5, 1.0), (10, 1.0391), (15, 0.9094), (10 ** 4, 0.7228)],
+                "moto": [(2, 1.3024), (5, 1.0), (10, 0.8766), (15, 0.7297), (10 ** 4, 0.5776)]}
+PUISSANCE_AUTO = [(4, 0.9288), (5, 1.0), (6, 1.0852), (7, 1.0602), (8, 1.0268), (10, 1.2223), (10 ** 4, 1.313)]
+FRANCHISE = {"basse": 1.1, "standard": 1.0, "haute": 0.88}
+PERMIS_HORS_UE = 1.1
+UE = {"France", "Belgique", "Luxembourg", "Allemagne", "Pays-Bas", "Italie", "Espagne", "Portugal", "Irlande", "Autriche",
+      "Suède", "Danemark", "Finlande", "Pologne", "Tchéquie", "République tchèque", "Slovaquie", "Hongrie", "Roumanie",
+      "Bulgarie", "Grèce", "Croatie", "Slovénie", "Estonie", "Lettonie", "Lituanie", "Malte", "Chypre",
+      "Norvège", "Islande", "Liechtenstein", "Suisse"}  # Union européenne + EEE + Suisse : permis reconnus sans surprime
 # valeur d'une unité de devise en euros (approximatif, comme pour les profils)
 TAUX_EUR = {"EUR": 1.0, "GBP": 1.17, "CHF": 1.07, "PLN": 0.235, "SEK": 0.087, "NOK": 0.085, "DKK": 0.134, "CZK": 0.04, "RON": 0.20}
 
@@ -109,16 +125,24 @@ def coefficients(fiche: dict, type_v: str) -> dict:
     age = fiche.get("age") or 40
     km = fiche.get("kilometrage_annuel") or 12000
     zone = zone_de(fiche.get("commune"))
+    novice = JEUNE_CONDUCTEUR_AAC if fiche.get("conduite_accompagnee") else JEUNE_CONDUCTEUR
+    annee = fiche.get("annee_mise_en_circulation")
     c = {
         "âge": next(v for borne, v in AGE[type_v] if age <= borne),
         "bonus-malus": coef_bonus_malus(fiche),
         # conducteur novice : moins de 3 ans de permis, ou jamais assuré (premier contrat)
-        "jeune conducteur": 2.0 if fiche.get("deja_assure") is False else
-                            JEUNE_CONDUCTEUR.get(fiche.get("annees_permis"), 1.0) if fiche.get("annees_permis") is not None else 1.0,
+        # conducteur novice : jamais assuré (1re année de surprime) ou moins de 3 ans de permis
+        "jeune conducteur": novice[0] if fiche.get("deja_assure") is False else novice.get(fiche.get("annees_permis"), 1.0),
         "usage": COEF_USAGE.get(fiche.get("usage"), 1.0),
         "kilométrage": next(v for borne, v in KM if km <= borne),
         "stationnement": COEF_STATIONNEMENT.get(fiche.get("stationnement_nuit"), 1.0),
         "zone": COEF_ZONE[type_v].get(zone, 1.0),
+        "énergie": ENERGIE[type_v].get(fiche.get("energie"), 1.0),
+        "âge du véhicule": next(v for borne, v in AGE_VEHICULE[type_v] if (ANNEE - annee if annee else 4) <= borne),
+        "puissance": next(v for borne, v in PUISSANCE_AUTO if fiche["puissance_fiscale"] <= borne)
+                     if type_v == "auto" and fiche.get("puissance_fiscale") else 1.0,
+        "franchise": FRANCHISE.get(fiche.get("franchise_souhaitee"), 1.0) if fiche.get("formule_souhaitee") != "tiers" else 1.0,
+        "permis étranger": PERMIS_HORS_UE if fiche.get("pays_permis") and fiche["pays_permis"] not in UE else 1.0,
     }
     return {k: round(v, 3) for k, v in c.items()}
 
@@ -161,6 +185,12 @@ def classer(offres: list[dict], critere: str = "prix") -> list[dict]:
         o["departagee"] = False
     if critere == "reputation":
         return sorted(offres, key=lambda o: (o["dans_le_budget"] is False, -score_reputation(o), o["prix_mensuel_estime_eur"]))
+    if critere == "equilibre":  # prix 50 %, garanties 25 %, avis 25 %
+        pmin = min(o["prix_mensuel_estime_eur"] for o in offres)
+        gmax = max(len(o["garanties"]) for o in offres) or 1
+        score = lambda o: (0.5 * pmin / o["prix_mensuel_estime_eur"] + 0.25 * len(o["garanties"]) / gmax
+                           + 0.25 * score_reputation(o) / 5)
+        return sorted(offres, key=lambda o: (o["dans_le_budget"] is False, -score(o)))
     if critere == "garanties":
         return sorted(offres, key=lambda o: (o["dans_le_budget"] is False, -len(o["garanties"]), o["prix_mensuel_estime_eur"]))
     liste = sorted(offres, key=lambda o: (o["dans_le_budget"] is False, o["prix_mensuel_estime_eur"]))
@@ -194,8 +224,19 @@ def chercher(fiche: dict, n: int | None = None) -> tuple[list[dict], dict, str]:
         choix = prix[(prix.pays == "France") & (prix.type == type_v) & (prix.formule == formule)]
         message = (f"Pas d'offre {type_v} en base pour « {pays} » : offres françaises affichées à titre d'exemple." if pays else
                    "Pays non communiqué : offres françaises affichées à titre d'exemple.")
-    if coef_bonus_malus(fiche) <= 1.0:  # les produits réservés aux conducteurs malussés ne concernent pas ce client
-        choix = choix[~choix.produit.str.contains("malus", case=False, na=False)]
+    specialise = choix.produit.str.contains("maluss", case=False, na=False)  # produits pour malussés / résiliés
+    resilie = fiche.get("resiliation_assureur") not in (None, "non")
+    if resilie:
+        if not specialise.any():
+            return [], {}, ("Votre contrat a été résilié par un assureur : il faut passer par une offre spécialisée pour "
+                            "conducteurs résiliés, que nous n'avons pas en base pour ce pays.")
+        choix = choix[specialise]
+        message = "Contrat résilié par un assureur : seules les offres pour conducteurs résiliés sont proposées."
+    elif coef_bonus_malus(fiche) <= 1.0:  # les produits réservés aux conducteurs malussés ne concernent pas ce client
+        choix = choix[~specialise]
+    if fiche.get("mode_acquisition") in ("credit", "LOA_LLD") and fiche.get("formule_souhaitee") == "tiers":
+        message = (message + " " if message else "") + ("Véhicule financé à crédit ou en LOA/LLD : l'organisme de "
+                   "financement exige souvent une assurance tous risques, vérifiez votre contrat.")
     coefs = coefficients(fiche, type_v)
     total = 1.0
     for v in coefs.values():

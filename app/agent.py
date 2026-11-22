@@ -30,18 +30,25 @@ ANNEE = 2026
 QUESTIONS = [
     ("type_vehicule", "Souhaitez-vous assurer une voiture ou une moto ?"),
     ("marque_modele", "Quels sont la marque et le modèle de votre véhicule ?"),
+    ("annee_mise_en_circulation", "En quelle année le véhicule a-t-il été mis en circulation ?"),
+    ("energie", "Quelle est son énergie : essence, diesel, hybride ou électrique ?"),
+    ("mode_acquisition", "Comment l'avez-vous financé : achat comptant, crédit, ou location (LOA / LLD) ?"),
     ("age", "Quel âge avez-vous ?"),
     ("commune", "Dans quelle ville habitez-vous ?"),
     ("pays_residence", "Dans quel pays se trouve cette ville ?"),
     ("type_permis", "Quel permis avez-vous : B, A, A2… ?"),
     ("annees_permis", "Depuis quelle année avez-vous votre permis ?"),
+    ("conduite_accompagnee", "Avez-vous passé votre permis en conduite accompagnée (AAC) ?"),
+    ("pays_permis", "Avez-vous obtenu votre permis dans votre pays de résidence ? Sinon, dans quel pays ?"),
     ("deja_assure", "Avez-vous déjà été assuré en tant que conducteur principal ?"),
     ("bonus_malus", "Quel est votre bonus-malus ? Il figure sur votre relevé d'information (par exemple 0,85 ou 50 % de bonus)."),
     ("sinistres_responsables_36_mois", "Avez-vous eu des sinistres ces trois dernières années ? Si oui, combien dont vous étiez responsable ?"),
+    ("resiliation_assureur", "Un assureur a-t-il déjà résilié votre contrat (pour sinistres, non-paiement ou fausse déclaration) ?"),
     ("usage", "Comment utilisez-vous le véhicule : usage privé, trajets domicile-travail ou usage professionnel ?"),
     ("kilometrage_annuel", "Combien de kilomètres parcourez-vous environ par an ?"),
     ("stationnement_nuit", "Où le véhicule est-il garé la nuit : garage fermé, parking privé ou dans la rue ?"),
     ("formule_souhaitee", "Quelle couverture souhaitez-vous : au tiers, intermédiaire (tiers + vol, incendie, bris de glace) ou tous risques ?"),
+    ("franchise_souhaitee", "Quelle franchise préférez-vous (ce qui reste à votre charge en cas de sinistre) : basse, standard ou haute ? Plus elle est haute, moins la cotisation est chère."),
     ("budget_mensuel_max", "Quel budget maximum souhaitez-vous consacrer à votre assurance par mois ?"),
 ]
 QUESTION = dict(QUESTIONS)
@@ -53,6 +60,9 @@ AIDE = {
     "annees_permis": "En quelle année avez-vous obtenu votre permis, par exemple « 2018 » ?",
     "kilometrage_annuel": "Combien de kilomètres faites-vous par an environ, par exemple « 12 000 km » ?",
     "budget_mensuel_max": "Quel montant maximum par mois, par exemple « 60 € » ?",
+    "annee_mise_en_circulation": "En quelle année le véhicule a-t-il été mis en circulation, par exemple « 2019 » ? Elle figure sur la carte grise.",
+    "resiliation_assureur": "Pour quelle raison le contrat a-t-il été résilié : sinistres, non-paiement ou fausse déclaration ?",
+    "pays_permis": "Dans quel pays avez-vous obtenu votre permis, par exemple « France » ?",
 }
 # cases sans lesquelles on peut quand même chercher des offres : on n'insiste pas plus de deux fois
 # le client peut refuser de répondre ; seul le type de véhicule est indispensable pour chercher des offres
@@ -63,11 +73,13 @@ REFUS = re.compile(r"\b(je (ne )?(veux|souhaite|prefere|prefererais|peux) pas|j 
                    r"ca ne vous regarde pas|ca vous regarde pas|sans reponse|je ne sais pas|je sais pas|aucune idee|"
                    r"non communique|pas de reponse)\b")
 INDISPENSABLES = {"type_vehicule"}
-CRITERES = {"prix": "le prix", "garanties": "les garanties", "reputation": "la réputation de l'assureur"}
+CRITERES = {"prix": "le prix", "garanties": "les garanties", "reputation": "la réputation de l'assureur",
+            "equilibre": "un bon équilibre entre le prix, les garanties et les avis des clients"}
 QUESTION_CRITERE = ("Votre profil est complet. Avant de vous présenter les offres, qu'est-ce qui compte le plus pour vous : "
                     "le prix, les garanties, ou la réputation de l'assureur (avis des clients) ?")
 
-FACULTATIVES = {"bonus_malus", "kilometrage_annuel", "pays_residence", "sinistres_responsables_36_mois"}
+FACULTATIVES = {"annee_mise_en_circulation", "energie", "mode_acquisition", "conduite_accompagnee", "pays_permis",
+                "resiliation_assureur", "franchise_souhaitee", "bonus_malus", "kilometrage_annuel", "pays_residence", "sinistres_responsables_36_mois"}
 VILLES_ARRONDISSEMENTS = {"paris": "Paris", "lyon": "Lyon", "marseille": "Marseille"}
 ACCUEIL = ("Bonjour, je suis votre conseiller AssurIA. Je vais vous poser quelques questions pour trouver les offres "
            "d'assurance qui vous correspondent. Pour commencer, souhaitez-vous assurer une voiture ou une moto ?")
@@ -176,6 +188,8 @@ def lire_reponse(champ: str, texte: str) -> dict:
         if m:
             return {"type_permis": m.group(1).upper()}
     if champ == "annees_permis":
+        if re.search(r"€|euro|\bkm\b|kilom|\bans? (de bonus|sans sinistre)", s):
+            return {}
         if re.search(r"(viens de l'avoir|cette annee|il y a quelques mois|tout juste)", s):
             return {"annees_permis": 0}
         an = [n for n in ns if 1950 <= n <= ANNEE]
@@ -236,6 +250,51 @@ def lire_reponse(champ: str, texte: str) -> dict:
                        (r"tiers|minimum|moins cher|basique|responsabilite civile", "tiers")]:
             if re.search(mot, s):
                 return {"formule_souhaitee": v}
+    if champ == "annee_mise_en_circulation":
+        an = [n for n in ns if 1950 <= n <= ANNEE]
+        if an:
+            return {"annee_mise_en_circulation": an[0]}
+        if re.search(r"\b(neuve?|cette annee)\b", s):
+            return {"annee_mise_en_circulation": ANNEE}
+        m = re.search(r"il y a (\d{1,2}) ans?", s)
+        if m:
+            return {"annee_mise_en_circulation": ANNEE - int(m.group(1))}
+    if champ == "energie":
+        for mot, v in [(r"hybride", "hybride"), (r"electrique|tesla|zoe\b", "electrique"),
+                       (r"diesel|gasoil|gazole|dci|tdi|hdi", "diesel"), (r"essence|sans plomb|sp ?9[58]|e10|super", "essence")]:
+            if re.search(mot, s):
+                return {"energie": v}
+    if champ == "mode_acquisition":
+        for mot, v in [(r"\bloa\b|\blld\b|location|leasing|loue", "LOA_LLD"), (r"credit|pret|emprunt|mensualit", "credit"),
+                       (r"comptant|cash|achete|paye|occasion|neuve?|moi[- ]meme|cadeau|herit", "comptant")]:
+            if re.search(mot, s):
+                return {"mode_acquisition": v}
+    if champ == "conduite_accompagnee":
+        if re.search(r"\b(non|pas|classique|normal|jamais)\b", s):
+            return {"conduite_accompagnee": False}
+        if re.search(r"\b(oui|ouais|aac|accompagnee|accompagne|anticipe)\b", s):
+            return {"conduite_accompagnee": True}
+    if champ == "pays_permis":
+        for p in PAYS:
+            if simple(p) in s:
+                return {"pays_permis": p}
+        if re.search(r"\b(oui|ouais|ici|meme|bien sur)\b", s):
+            return {"pays_permis": "__residence__"}
+        m = re.search(r"\b(?:au|aux|en|du|des|a l'|de l')\s*([a-z][a-z' -]{2,25})$", s.strip(" .!"))
+        if m and not REFUS.search(s):
+            return {"pays_permis": " ".join(w.capitalize() for w in m.group(1).split())}
+    if champ == "resiliation_assureur":
+        for mot, v in [(r"impaye|non[- ]paiement|pas paye|cotisation|paiement", "non_paiement"),
+                       (r"fausse|mensong|declaration", "fausse_declaration"), (r"sinistre|accident|accroch", "sinistres")]:
+            if re.search(mot, s):
+                return {"resiliation_assureur": v}
+        if re.search(r"\b(non|jamais|aucun|pas)\b", s):
+            return {"resiliation_assureur": "non"}
+    if champ == "franchise_souhaitee":
+        for mot, v in [(r"basse|faible|petite|minimum|la plus basse", "basse"), (r"haute|elevee|grosse|forte|maximum", "haute"),
+                       (r"standard|normale|moyenne|classique|peu importe|egal", "standard")]:
+            if re.search(mot, s):
+                return {"franchise_souhaitee": v}
     if champ == "budget_mensuel_max":
         b = [n for n in ns if 5 <= n <= 2000]
         if b:
@@ -318,6 +377,9 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
                     continue
                 if c in QUESTION and lire_reponse(c, texte_client).get(c) is None and c != "deja_assure":
                     continue
+                # case jamais demandée (profession, paiement…) : le mot doit apparaître dans ce que le client a écrit
+                if c not in QUESTION and c != "devise_budget" and simple(v).split("_")[0][:5] not in client:
+                    continue
             else:
                 v = str(v).strip()
                 if c in ("commune", "marque_modele") and simple(v).split(" ")[0] not in client:
@@ -346,6 +408,7 @@ class Conversation:
         self.slm, self.llm = modele_slm, modele_llm
         self.historique = [{"role": "assistant", "content": ACCUEIL}]
         self.fiche = {c: None for c in NOMS}
+        self.fiche.update({"conduite_accompagnee": None, "puissance_fiscale": None})
         self.demandee = "type_vehicule"
         self.essais: dict[str, int] = {}
         self.ignorees: set[str] = set()
@@ -371,18 +434,26 @@ class Conversation:
                 t = "moto"
             f["type_vehicule"] = t
 
+    def concerne(self, champ: str) -> bool:
+        """Certaines questions ne se posent que dans certains cas."""
+        f = self.fiche
+        if champ in ("bonus_malus", "sinistres_responsables_36_mois", "resiliation_assureur"):
+            return f.get("deja_assure") is not False
+        if champ == "conduite_accompagnee":  # la conduite accompagnée ne réduit la surprime que les 3 premières années
+            return f.get("type_vehicule") != "moto" and f.get("annees_permis") is not None and f["annees_permis"] <= 2
+        if champ == "franchise_souhaitee":  # au tiers, pas de garantie dommages, donc pas de franchise à choisir
+            return f.get("formule_souhaitee") != "tiers"
+        return True
+
     def case_suivante(self):
         for champ, _ in QUESTIONS:
-            if self.fiche.get(champ) is not None or champ in self.ignorees:
-                continue
-            if champ in ("bonus_malus", "sinistres_responsables_36_mois") and self.fiche.get("deja_assure") is False:
+            if self.fiche.get(champ) is not None or champ in self.ignorees or not self.concerne(champ):
                 continue
             return champ
         return None
 
     def progression(self) -> tuple[int, int]:
-        utiles = [c for c, _ in QUESTIONS if not (c in ("bonus_malus", "sinistres_responsables_36_mois")
-                                                    and self.fiche.get("deja_assure") is False)]
+        utiles = [c for c, _ in QUESTIONS if self.concerne(c)]
         return sum(1 for c in utiles if self.fiche.get(c) is not None or c in self.ignorees), len(utiles)
 
     PAIRES = {"type_vehicule": ["marque_modele"], "marque_modele": ["type_vehicule"], "type_permis": ["annees_permis"],
@@ -414,6 +485,8 @@ class Conversation:
                     continue  # on ne prend un modèle « en passant » que si une marque est citée
                 for c, v in lire_reponse(voisin, message).items():
                     direct.setdefault(c, v)
+        if direct.get("pays_permis") == "__residence__":
+            direct["pays_permis"] = self.fiche.get("pays_residence") or "France"
         for c, v in direct.items():
             if c not in self.verrouillees:
                 self.fiche[c] = v
@@ -439,7 +512,9 @@ class Conversation:
 
     def choisir_critere(self, message: str) -> str:
         t = simple(message)
-        if re.search(r"garanti|couvert|couvrir|protection|protege|complet", t):
+        if re.search(r"trois|tout|tous|equilibr|compromis|rapport qualite|un peu de chaque|melange", t):
+            self.critere = "equilibre"
+        elif re.search(r"garanti|couvert|couvrir|protection|protege|complet", t):
             self.critere = "garanties"
         elif re.search(r"reput|avis|note|confiance|serieu|fiab|service|client|satisf", t):
             self.critere = "reputation"
@@ -452,8 +527,7 @@ class Conversation:
         """Remplit la fiche avec le véhicule trouvé grâce à la plaque (la plaque elle-même n'est pas gardée)."""
         if resultat["ok"]:
             v = resultat["vehicule"]
-            details = ", ".join(str(x) for x in (v["annee"], v["energie"]) if x)
-            self.historique.append({"role": "user", "content": f"Mon véhicule : {v['nom']}" + (f" ({details})" if details else "") + "."})
+            self.historique.append({"role": "user", "content": f"Mon véhicule est une {v['nom']}."})
             for c, val in resultat["fiche"].items():
                 self.fiche[c] = val
                 self.verrouillees.add(c)

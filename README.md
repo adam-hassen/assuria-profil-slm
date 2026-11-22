@@ -203,6 +203,14 @@ REGCHECK_USER=...                      compte RegCheck (gratuit) pour retrouver 
 Terminal : à chaque message, le serveur affiche dans le terminal la question posée, la réponse du client, ce que le petit
 modèle a extrait, ce qui a été lu par les règles, et la fiche à jour (+ nouvelle valeur, - non communiqué, ? question suivante).
 
+Questions posées (comme sur les sites d'assureurs) : véhicule (modèle, année, énergie, financement), conducteur (âge,
+ville, pays), permis (catégorie, ancienneté, conduite accompagnée si moins de 3 ans, pays du permis), antécédents
+(assuré, bonus-malus, sinistres, résiliation), utilisation (usage, km, stationnement), couverture (formule, franchise,
+budget). Les questions sans objet sont sautées (pas de franchise au tiers, pas d'antécédents pour un premier contrat…).
+Elles entrent dans le prix avec les coefficients du simulateur (`simulation/coefficients.json`) : énergie, âge et
+puissance du véhicule, conduite accompagnée, permis hors UE, franchise. Un contrat résilié ne reçoit que les offres pour
+conducteurs résiliés ; un véhicule à crédit ou en LOA avec une formule au tiers déclenche un avertissement.
+
 Refus de répondre : le client peut dire « je préfère ne pas répondre » (ou cliquer sur le bouton) ; la question est
 passée, le dossier affiche « Non communiqué » et le prix utilise une valeur moyenne (l'estimation est signalée comme moins
 précise). Seul le type de véhicule est indispensable.
@@ -211,7 +219,8 @@ Choix final : quand le profil est complet, le conseiller demande ce qui compte l
 l'assureur). Les offres sont classées selon ce critère (`offres.classer`), et le client peut changer de tri ensuite.
 - prix : les moins chères d'abord ; à moins de 5 % d'écart, l'assureur le mieux noté passe devant (« départagée par les avis ») ;
 - garanties : le plus de garanties d'abord, puis le prix ;
-- réputation : note des clients corrigée par le nombre d'avis (moyenne bayésienne), puis le prix.
+- réputation : note des clients corrigée par le nombre d'avis (moyenne bayésienne), puis le prix ;
+- équilibre (« un peu des trois ») : prix 50 %, garanties 25 %, avis 25 %.
 Les notes viennent de la table `reputation_assureurs` (Trustpilot surtout, avec la source de chaque note).
 
 Plaque d'immatriculation : quand le conseiller demande le véhicule, une carte permet de saisir la plaque. L'API RegCheck

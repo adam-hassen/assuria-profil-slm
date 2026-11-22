@@ -105,8 +105,12 @@ def chercher(plaque: str, type_vehicule: str | None = None) -> dict:
         annee = int(str(donnees.get("RegistrationYear") or ext.get("anneeSortie"))[:4])
     except ValueError:
         annee = None
+    try:
+        cv = int(ext.get("puissance") or (donnees.get("EngineSize") or {}).get("CurrentTextValue") or 0) or None
+    except ValueError:
+        cv = None
     fiche = {"type_vehicule": type_v, "marque_modele": nom or None, "annee_mise_en_circulation": annee,
-             "energie": energie(donnees)}
+             "energie": energie(donnees), "puissance_fiscale": cv if type_v == "auto" else None}
     vehicule = {"nom": nom, "annee": annee, "energie": fiche["energie"],
                 "carrosserie": joli((donnees.get("BodyStyle") or {}).get("CurrentTextValue") or "") or None,
                 "version": (ext.get("libVersion") or "").strip() or None,
