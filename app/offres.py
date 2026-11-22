@@ -122,8 +122,8 @@ def coef_bonus_malus(fiche: dict) -> float:
 
 
 def coefficients(fiche: dict, type_v: str) -> dict:
-    age = fiche.get("age") or 40
-    km = fiche.get("kilometrage_annuel") or 12000
+    age = min(fiche.get("age") or 40, 199)
+    km = min(fiche.get("kilometrage_annuel") or 12000, 10 ** 8)
     zone = zone_de(fiche.get("commune"))
     novice = JEUNE_CONDUCTEUR_AAC if fiche.get("conduite_accompagnee") else JEUNE_CONDUCTEUR
     annee = fiche.get("annee_mise_en_circulation")

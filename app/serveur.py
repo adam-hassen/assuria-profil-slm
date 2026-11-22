@@ -61,8 +61,9 @@ def accueil():
 def nouvelle():
     cid = uuid.uuid4().hex
     conversations[cid] = agent.Conversation(SLM, LLM)
+    entete_terminal()
     return {"id": cid, "message": agent.ACCUEIL, **etat(conversations[cid]), "modeles": {"petit": SLM, "gros": LLM},
-            "donnees": offres.source(), "plaque": plaque.disponible()}
+            "donnees": offres.source(), "plaque": plaque.disponible(), "regles": agent.REGLES}
 
 
 class Message(BaseModel):
@@ -74,6 +75,12 @@ class Message(BaseModel):
 COULEUR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
 def _c(code: str, t: str) -> str:
     return f"\033[{code}m{t}\033[0m" if COULEUR else t
+
+
+def entete_terminal():
+    mode = "petit modèle SEUL (REGLES=0)" if not agent.REGLES else "petit modèle + règles"
+    print(_c("1;33" if not agent.REGLES else "1;34", f"\n=== AssurIA · {SLM} · {mode} ===\n"))
+    sys.stdout.flush()
 
 
 def journal_terminal(c: agent.Conversation, texte: str, avant: dict, question: str | None, passees_avant: set):
@@ -88,13 +95,18 @@ def journal_terminal(c: agent.Conversation, texte: str, avant: dict, question: s
     if j.get("erreur"):
         print(f"{_c('2', 'erreur    ')}: {_c('31', str(j['erreur']))}")
     print(f"{_c('2', 'retenu SLM')}: {json.dumps(j.get('retenu_du_petit_modele') or {}, ensure_ascii=False)}")
-    print(f"{_c('2', 'lu (règle)')}: {json.dumps(j.get('lu_dans_la_reponse') or {}, ensure_ascii=False)}")
+    if agent.REGLES or j.get("lu_dans_la_reponse"):
+        print(f"{_c('2', 'lu (règle)')}: {json.dumps(j.get('lu_dans_la_reponse') or {}, ensure_ascii=False)}")
+    else:
+        print(f"{_c('2', 'lu (règle)')}: {_c('33', '(règles coupées : REGLES=0)')}")
     print(f"{_c('2', 'fiche     ')}: {n}/{total}")
     for champ, _ in agent.QUESTIONS:
         v = c.fiche.get(champ)
         if v is not None:
             marque = _c("32", "+ ") if avant.get(champ) != v else "  "
             print(f"   {marque}{champ:<32}{_c('1', str(v))}")
+        elif champ in c.vues and champ not in c.ignorees:
+            print(f"   {_c('31', '! ')}{champ:<32}{_c('31', 'oublié par le petit modèle (était : ' + str(avant.get(champ)) + ')' if avant.get(champ) is not None else 'oublié par le petit modèle')}")
         elif champ in c.ignorees:
             print(f"   {_c('33', '- ') if champ not in passees_avant else '  '}{champ:<32}{_c('33', 'non communiqué')}")
         elif champ == c.demandee:

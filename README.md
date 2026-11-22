@@ -197,6 +197,7 @@ NEON_DATABASE_URL=postgresql://...     base des offres (sinon : dépôt assuria-
 SLM_MODEL=qwen2.5:1.5b                 petit modèle ; plus tard le modèle fine-tuné (ex. assuria-profil)
 LLM_MODEL=qwen3:8b                     gros LLM
 QUESTIONS_LLM=1                        0 pour poser les questions prévues sans passer par le gros LLM (plus rapide)
+REGLES=1                               0 pour couper les règles : le petit modèle remplit la fiche seul (pour le comparer)
 REGCHECK_USER=...                      compte RegCheck (gratuit) pour retrouver le véhicule par sa plaque
 ```
 
@@ -210,6 +211,11 @@ budget). Les questions sans objet sont sautées (pas de franchise au tiers, pas 
 Elles entrent dans le prix avec les coefficients du simulateur (`simulation/coefficients.json`) : énergie, âge et
 puissance du véhicule, conduite accompagnée, permis hors UE, franchise. Un contrat résilié ne reçoit que les offres pour
 conducteurs résiliés ; un véhicule à crédit ou en LOA avec une formule au tiers déclenche un avertissement.
+
+Petit modèle seul (`REGLES=0`) : le code ne lit plus les réponses et ne vérifie plus le contexte ; la fiche est celle
+du petit modèle à chaque message (seul le format est contrôlé). Une case qu'il oublie se vide et le terminal l'affiche
+en rouge (« oublié par le petit modèle »). Une question sans réponse au bout de deux essais est passée. Sert à comparer
+le modèle de base et le modèle fine-tuné sans l'aide des règles.
 
 Refus de répondre : le client peut dire « je préfère ne pas répondre » (ou cliquer sur le bouton) ; la question est
 passée, le dossier affiche « Non communiqué » et le prix utilise une valeur moyenne (l'estimation est signalée comme moins

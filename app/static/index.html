@@ -93,6 +93,7 @@
   .chat-tete strong { display: block; font-size: 15px; }
   .chat-tete span { font-size: 12.5px; color: var(--doux); }
   .etapes-mobile { display: none; }
+  .mode { margin-left: 10px; font-size: 11.5px; font-weight: 600; color: var(--ambre); background: var(--ambre-fond); border: 1px solid #f1dcb5; border-radius: 5px; padding: 1px 7px; }
 
   .fil { flex: 1; overflow-y: auto; padding: 28px 28px 12px; display: flex; flex-direction: column; gap: 16px; }
   .fil > * { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; }
@@ -320,7 +321,7 @@
       <div class="avatar" aria-hidden="true"><svg color="#fff"><use href="#i-bouclier"/></svg></div>
       <div>
         <strong>Votre conseiller AssurIA</strong>
-        <span id="statut-conseiller">En ligne</span>
+        <span id="statut-conseiller">En ligne</span><span class="mode" id="mode" hidden>Petit modèle seul · règles coupées</span>
       </div>
       <div class="etapes-mobile" id="etapes-mobile" aria-hidden="true"></div>
     </div>
@@ -647,7 +648,7 @@ async function demarrer() {
   $("#fil").replaceChildren();
   fiche = {};
   const r = await fetch("/api/conversation", {method: "POST"}).then((x) => x.json());
-  id = r.id; PLAQUE = !!r.plaque;
+  id = r.id; PLAQUE = !!r.plaque; $("#mode").hidden = r.regles !== false;
   bulleConseiller(r.message);
   afficherProfil(r.fiche, r.connues, r.total, r.demandee, r.ignorees);
   $("#saisie").focus();

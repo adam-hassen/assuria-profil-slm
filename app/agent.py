@@ -23,6 +23,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from schema import CHAMPS, CONSIGNE, NOMS, message_utilisateur  # noqa: E402
 
+# REGLES=0 dans .env : le petit modèle remplit la fiche seul (pas de lecture des réponses par le code, pas de
+# vérification du contexte). Sert à montrer ce que fait vraiment le petit modèle, avant et après fine-tuning.
+REGLES = os.environ.get("REGLES", "1") != "0"
+
 OLLAMA = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 ANNEE = 2026
 
@@ -405,6 +409,32 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
     return propre
 
 
+def format_seul(brut: dict) -> dict:
+    """Mode sans règles : on garde la valeur du petit modèle telle quelle, en contrôlant seulement son format
+    (un nombre pour un nombre, une valeur de la liste pour un choix), sinon l'application ne pourrait pas s'en servir."""
+    propre = {}
+    for c in NOMS:
+        v = brut.get(c)
+        if v is None or simple(v) in ("", "null", "none"):
+            continue
+        t = CHAMPS[c][0]
+        try:
+            if t == "entier":
+                v = int(float(str(v).replace(" ", "").replace(",", ".")))
+            elif t == "booléen":
+                v = v if isinstance(v, bool) else simple(v) in ("true", "oui", "vrai", "1")
+            elif c in VALEURS:
+                v = {simple(x).replace(" ", "_"): x for x in VALEURS[c]}.get(simple(v).replace(" ", "_"))
+                if v is None:
+                    continue
+            else:
+                v = str(v).strip()
+        except (ValueError, TypeError):
+            continue
+        propre[c] = v
+    return propre
+
+
 def lire_json(texte: str) -> dict:
     debut, fin = texte.find("{"), texte.rfind("}")
     try:
@@ -425,6 +455,7 @@ class Conversation:
         self.essais: dict[str, int] = {}
         self.ignorees: set[str] = set()
         self.verrouillees: set[str] = set()
+        self.vues: set[str] = set()  # cases déjà remplies une fois : on ne repose pas la question si le modèle les oublie
         self.critere: str | None = None  # ce qui compte le plus pour le client à la fin : prix, garanties, reputation  # cases remplies par la plaque : le petit modèle n'y touche plus
         self.terminee = False
         self.journal: list[dict] = []
@@ -449,6 +480,8 @@ class Conversation:
     def concerne(self, champ: str) -> bool:
         """Certaines questions ne se posent que dans certains cas."""
         f = self.fiche
+        if not REGLES and champ not in NOMS:  # case hors du schéma du petit modèle : il ne peut pas la remplir
+            return False
         if champ in ("bonus_malus", "sinistres_responsables_36_mois", "resiliation_assureur"):
             return f.get("deja_assure") is not False
         if champ == "conduite_accompagnee":
@@ -461,14 +494,15 @@ class Conversation:
 
     def case_suivante(self):
         for champ, _ in QUESTIONS:
-            if self.fiche.get(champ) is not None or champ in self.ignorees or not self.concerne(champ):
+            if (self.fiche.get(champ) is not None or champ in self.ignorees or champ in self.vues
+                    or not self.concerne(champ)):
                 continue
             return champ
         return None
 
     def progression(self) -> tuple[int, int]:
         utiles = [c for c, _ in QUESTIONS if self.concerne(c)]
-        return sum(1 for c in utiles if self.fiche.get(c) is not None or c in self.ignorees), len(utiles)
+        return sum(1 for c in utiles if self.fiche.get(c) is not None or c in self.ignorees or c in self.vues), len(utiles)
 
     PAIRES = {"type_vehicule": ["marque_modele"], "marque_modele": ["type_vehicule"], "type_permis": ["annees_permis"],
               "annees_permis": ["type_permis"], "deja_assure": [], "commune": ["pays_residence"]}
@@ -486,27 +520,37 @@ class Conversation:
         except Exception as e:  # le conseiller continue avec les règles seules
             erreur = str(e)
         duree = time.perf_counter() - t0
-        propose = nettoyer(lire_json(brut), self.texte_client(),
-                           [m["content"] for m in self.historique if m["role"] == "user"])
-        for c, v in propose.items():
-            if c not in self.verrouillees:
-                self.fiche[c] = v
-        # 2. la réponse à la question posée, lue directement
-        direct = lire_reponse(self.demandee, message) if self.demandee else {}
-        for voisin in self.PAIRES.get(self.demandee, []):  # une réponse donne souvent aussi la case voisine
-            if self.fiche.get(voisin) is None:
-                if voisin == "marque_modele" and not any(re.search(rf"\b{m}\b", simple(message)) for m in MARQUES):
-                    continue  # on ne prend un modèle « en passant » que si une marque est citée
-                for c, v in lire_reponse(voisin, message).items():
-                    direct.setdefault(c, v)
-        if direct.get("pays_permis") == "__residence__":
-            direct["pays_permis"] = self.fiche.get("pays_residence") or "France"
-        for c, v in direct.items():
-            if c not in self.verrouillees:
-                self.fiche[c] = v
-        self.completer(deduire)
-        if self.fiche.get("deja_assure") is False:
-            self.fiche["annees_assure_total"] = 0
+        if not REGLES:
+            # le petit modèle seul : sa fiche remplace la précédente à chaque message (s'il oublie, la case se vide)
+            propose = format_seul(lire_json(brut))
+            if brut and not erreur:
+                for c in NOMS:
+                    if c not in self.verrouillees:
+                        self.fiche[c] = propose.get(c)
+            direct = {}
+        else:
+            propose = nettoyer(lire_json(brut), self.texte_client(),
+                               [m["content"] for m in self.historique if m["role"] == "user"])
+            for c, v in propose.items():
+                if c not in self.verrouillees:
+                    self.fiche[c] = v
+            # 2. la réponse à la question posée, lue directement
+            direct = lire_reponse(self.demandee, message) if self.demandee else {}
+            for voisin in self.PAIRES.get(self.demandee, []):  # une réponse donne souvent aussi la case voisine
+                if self.fiche.get(voisin) is None:
+                    if voisin == "marque_modele" and not any(re.search(rf"\b{m}\b", simple(message)) for m in MARQUES):
+                        continue  # on ne prend un modèle « en passant » que si une marque est citée
+                    for c, v in lire_reponse(voisin, message).items():
+                        direct.setdefault(c, v)
+            if direct.get("pays_permis") == "__residence__":
+                direct["pays_permis"] = self.fiche.get("pays_residence") or "France"
+            for c, v in direct.items():
+                if c not in self.verrouillees:
+                    self.fiche[c] = v
+            self.completer(deduire)
+            if self.fiche.get("deja_assure") is False:
+                self.fiche["annees_assure_total"] = 0
+        self.vues |= {c for c, v in self.fiche.items() if v is not None}
         # 3. la question a-t-elle reçu une réponse ? Le client peut aussi refuser de répondre.
         compris = self.demandee is None or self.fiche.get(self.demandee) is not None
         passee = None
@@ -515,7 +559,7 @@ class Conversation:
             passee, compris = self.demandee, True
         if not compris:
             self.essais[self.demandee] = self.essais.get(self.demandee, 0) + 1
-            if self.essais[self.demandee] >= 2 and self.demandee in FACULTATIVES:
+            if self.essais[self.demandee] >= 2 and (self.demandee in FACULTATIVES or not REGLES):
                 self.ignorees.add(self.demandee)  # case facultative : on n'insiste pas plus de deux fois
         self.journal.append({"petit_modele": self.slm, "duree_s": round(duree, 2), "reponse_brute": brut,
                              "retenu_du_petit_modele": propose, "lu_dans_la_reponse": direct, "erreur": erreur})
