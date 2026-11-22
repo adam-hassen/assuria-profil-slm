@@ -105,6 +105,8 @@ def journal_terminal(c: agent.Conversation, texte: str, avant: dict, question: s
         if v is not None:
             marque = _c("32", "+ ") if avant.get(champ) != v else "  "
             print(f"   {marque}{champ:<32}{_c('1', str(v))}")
+        elif champ in c.ratees and not agent.REGLES:
+            print(f"   {_c('31', 'x ')}{champ:<32}{_c('31', 'pas compris (question passée)')}")
         elif champ in c.vues and champ not in c.ignorees:
             print(f"   {_c('31', '! ')}{champ:<32}{_c('31', 'oublié par le petit modèle (était : ' + str(avant.get(champ)) + ')' if avant.get(champ) is not None else 'oublié par le petit modèle')}")
         elif champ in c.ignorees:

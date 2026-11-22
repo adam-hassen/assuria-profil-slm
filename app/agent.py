@@ -455,7 +455,8 @@ class Conversation:
         self.essais: dict[str, int] = {}
         self.ignorees: set[str] = set()
         self.verrouillees: set[str] = set()
-        self.vues: set[str] = set()  # cases déjà remplies une fois : on ne repose pas la question si le modèle les oublie
+        self.vues: set[str] = set()
+        self.ratees: set[str] = set()  # questions passées parce que le modèle n'a pas compris la réponse  # cases déjà remplies une fois : on ne repose pas la question si le modèle les oublie
         self.critere: str | None = None  # ce qui compte le plus pour le client à la fin : prix, garanties, reputation  # cases remplies par la plaque : le petit modèle n'y touche plus
         self.terminee = False
         self.journal: list[dict] = []
@@ -502,6 +503,8 @@ class Conversation:
 
     def progression(self) -> tuple[int, int]:
         utiles = [c for c, _ in QUESTIONS if self.concerne(c)]
+        if not REGLES:  # on ne compte que ce que le petit modèle a vraiment rempli
+            return sum(1 for c in utiles if self.fiche.get(c) is not None), len(utiles)
         return sum(1 for c in utiles if self.fiche.get(c) is not None or c in self.ignorees or c in self.vues), len(utiles)
 
     PAIRES = {"type_vehicule": ["marque_modele"], "marque_modele": ["type_vehicule"], "type_permis": ["annees_permis"],
@@ -560,7 +563,8 @@ class Conversation:
         if not compris:
             self.essais[self.demandee] = self.essais.get(self.demandee, 0) + 1
             if self.essais[self.demandee] >= 2 and (self.demandee in FACULTATIVES or not REGLES):
-                self.ignorees.add(self.demandee)  # case facultative : on n'insiste pas plus de deux fois
+                self.ignorees.add(self.demandee)
+                self.ratees.add(self.demandee)  # case facultative : on n'insiste pas plus de deux fois
         self.journal.append({"petit_modele": self.slm, "duree_s": round(duree, 2), "reponse_brute": brut,
                              "retenu_du_petit_modele": propose, "lu_dans_la_reponse": direct, "erreur": erreur})
         suivante = self.case_suivante()
