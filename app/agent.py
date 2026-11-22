@@ -56,7 +56,9 @@ AIDE = {
 }
 # cases sans lesquelles on peut quand même chercher des offres : on n'insiste pas plus de deux fois
 # le client peut refuser de répondre ; seul le type de véhicule est indispensable pour chercher des offres
-REFUS = re.compile(r"\b(je (ne )?(veux|souhaite|prefere|prefererais) pas (le |la |les |vous )?(dire|repondre|donner|communiquer|preciser)|"
+REFUS = re.compile(r"\b(je (ne )?(veux|souhaite|prefere|prefererais|peux) pas|j ai pas envie|pas envie|"
+                   r"(mentionn|montionn|mensionn|communiqu|repond|preciser|divulg)\w*|pas (le |la )?dire|secret|"
+                   r"(je (ne )?(veux|souhaite|prefere|prefererais) pas (le |la |les |vous )?(dire|repondre|donner|communiquer|preciser))|"
                    r"je prefere ne pas|pas envie de|je passe|on passe|passons|passer cette question|confidentiel|"
                    r"ca ne vous regarde pas|ca vous regarde pas|sans reponse|je ne sais pas|je sais pas|aucune idee|"
                    r"non communique|pas de reponse)\b")
@@ -123,7 +125,7 @@ def lire_reponse(champ: str, texte: str) -> dict:
     """Lit la réponse du client à une question précise. Retourne les cases trouvées (peut être vide)."""
     s = simple(texte)
     ns = nombres(s)
-    if re.search(r"\b(je ne sais pas|je sais pas|aucune idee|sais plus)\b", s):
+    if re.search(r"\b(je ne sais pas|je sais pas|aucune idee|sais plus)\b", s) or REFUS.search(s):
         return {}
     if champ == "type_vehicule":
         if re.search(r"\b(moto|scooter|deux roues|2 roues)\b", s):
@@ -159,7 +161,9 @@ def lire_reponse(champ: str, texte: str) -> dict:
         c = re.sub(r"^(aux|au|à|a|sur|dans)\s+", "", c, flags=re.I).strip(" .,!")
         c = re.split(r",| en | au | dans ", c)[0].strip()
         trouve = {}
-        if 2 <= len(c) <= 40 and "?" not in c and not re.search(r"\d{3,}", c):
+        # un nom de ville : court, sans verbe ni mot de phrase (« je veux pas le dire » n'est pas une ville)
+        phrase = re.search(r"\b(je|j|tu|vous|veux|pas|ne|sais|dire|non|oui|pourquoi|quoi|comment|rien|est|suis|c)\b", simple(c))
+        if 2 <= len(c) <= 40 and len(c.split()) <= 4 and not phrase and "?" not in c and not re.search(r"\d{3,}", c):
             trouve["commune"] = "Le Mans" if simple(c) in ("mans", "le mans") else c[:1].upper() + c[1:]
         trouve.update(lire_reponse("pays_residence", texte))
         return trouve
@@ -318,7 +322,8 @@ def nettoyer(brut: dict, texte_client: str, messages: list[str] | None = None) -
                 v = str(v).strip()
                 if c in ("commune", "marque_modele") and simple(v).split(" ")[0] not in client:
                     continue
-                if c == "commune" and (re.search(r"arrondissement|^\d", simple(v)) or len(v) > 40):
+                if c == "commune" and (re.search(r"arrondissement|^\d", simple(v)) or len(v) > 40
+                                       or not lire_reponse("commune", v).get("commune") or REFUS.search(simple(texte_client))):
                     continue
         except (ValueError, TypeError):
             continue
@@ -460,6 +465,8 @@ class Conversation:
     def question(self, suivante: str, relance: bool, message: str, passee: str | None = None) -> str:
         """Le gros LLM formule la question ; si sa réponse sort du cadre, on garde la question prévue."""
         prevue = QUESTION[suivante]
+        if suivante == "pays_residence" and "commune" in self.ignorees:
+            prevue = "Dans quel pays habitez-vous ?"
         if relance and suivante in INDISPENSABLES and REFUS.search(simple(message)):
             return "J'ai besoin de cette information pour vous proposer des offres adaptées. " + prevue
         if relance and self.essais.get(suivante, 0) >= 1 and suivante in AIDE:

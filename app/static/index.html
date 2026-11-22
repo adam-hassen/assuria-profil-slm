@@ -52,7 +52,13 @@
   .bouton svg { width: 15px; height: 15px; }
 
   /* ---------- grille principale */
-  .page { flex: 1; min-height: 0; display: grid; grid-template-columns: 248px minmax(0, 1fr) 348px; }
+  .page { flex: 1; min-height: 0; display: grid; grid-template-columns: 268px minmax(0, 1fr); }
+  .avancement { margin-top: -8px; }
+  .avancement-texte { display: flex; justify-content: space-between; font-size: 12.5px; color: #8193ad; margin-bottom: 6px; }
+  .avancement-texte b { font-family: var(--mono); color: #e8eef7; font-weight: 600; }
+  .parcours .barre-prog { background: #22406b; }
+  .parcours .barre-prog i { background: #fff; }
+  .parcours .barre-prog.plein i { background: var(--vert); }
 
   /* ---------- parcours (gauche) */
   .parcours { background: var(--marine-2); color: #c9d3e2; padding: 28px 22px; display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
@@ -248,7 +254,7 @@
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
   @media (max-width: 1180px) {
-    .page { grid-template-columns: minmax(0, 1fr) 330px; }
+    .page { grid-template-columns: minmax(0, 1fr); }
     .parcours { display: none; }
     .etapes-mobile { display: flex; gap: 5px; margin-left: auto; }
     .etapes-mobile i { width: 22px; height: 4px; border-radius: 2px; background: var(--trait); }
@@ -302,6 +308,10 @@
 <div class="page">
   <nav class="parcours" aria-label="Étapes de la simulation">
     <h2>Votre devis</h2>
+    <div class="avancement">
+      <div class="avancement-texte"><span>Informations recueillies</span><b id="compteur">0 / 15</b></div>
+      <div class="barre-prog" id="barre-prog"><i></i></div>
+    </div>
     <ol class="etapes" id="etapes"></ol>
   </nav>
 
@@ -327,26 +337,6 @@
     </div>
   </section>
 
-  <aside class="dossier" aria-label="Dossier de simulation">
-    <div class="dossier-tete">
-      <div class="dossier-ligne">
-        <h2>Dossier de simulation</h2>
-        <span class="statut cours" id="statut">En cours</span>
-      </div>
-      <div class="reference"><span id="reference">AS-—</span><span id="date"></span></div>
-      <div class="progression">
-        <div class="progression-texte"><span>Informations recueillies</span><b id="compteur">0 / 15</b></div>
-        <div class="barre-prog" id="barre-prog"><i></i></div>
-      </div>
-    </div>
-    <div class="sections" id="sections"></div>
-    <p class="note">Les prix sont estimés à partir des offres réelles de notre base et des coefficients du marché (âge, zone, bonus-malus, usage…). Ce n'est pas un devis.</p>
-    <div class="demo" id="demo" hidden>
-      <h3>Coulisses (mode démo)</h3>
-      <div id="demo-modeles"></div>
-      <div id="demo-tour"></div>
-    </div>
-  </aside>
 </div>
 
 <script>
@@ -445,11 +435,9 @@ function afficherProfil(nouvelleFiche, connues, total, prochaine, passees) {
   $("#barre-prog i").style.width = p + "%";
   $("#barre-prog").classList.toggle("plein", p >= 100 || termine);
   $("#compteur").textContent = `${connues} / ${total}`;
-  const fini = termine || (!prochaine && connues > 0);
-  $("#statut").textContent = fini ? "Complet" : "En cours";
-  $("#statut").className = "statut " + (fini ? "complet" : "cours");
 
-  const zone = $("#sections"); zone.replaceChildren();
+  const zone = $("#sections");
+  if (zone) { zone.replaceChildren();
   ETAPES.forEach(([titre, champs], i) => {
     const s = el("section", "section");
     const h = el("h3"); h.append(el("span", "num", String(i + 1).padStart(2, "0")), document.createTextNode(titre));
@@ -464,7 +452,7 @@ function afficherProfil(nouvelleFiche, connues, total, prochaine, passees) {
       dl.append(r);
     }
     s.append(h, dl); zone.append(s);
-  });
+  }); }
   requestAnimationFrame(() => setTimeout(() => document.querySelectorAll(".champ.nouveau").forEach((r) => r.classList.remove("nouveau")), 900));
   afficherEtapes();
 
@@ -633,7 +621,7 @@ function afficherOffres(e) {
 }
 
 function afficherDemo(j) {
-  if (!DEMO) return;
+  if (!DEMO || !$("#demo-tour")) return;
   const z = $("#demo-tour"); z.replaceChildren();
   z.append(el("div", null, `Petit modèle : ${j.duree_s} s${j.erreur ? " — erreur : " + j.erreur : ""}`));
   z.append(el("div", null, "Retenu du petit modèle : " + JSON.stringify(j.retenu_du_petit_modele)));
@@ -648,11 +636,8 @@ async function demarrer() {
   fiche = {};
   const r = await fetch("/api/conversation", {method: "POST"}).then((x) => x.json());
   id = r.id; PLAQUE = !!r.plaque;
-  $("#reference").textContent = "AS-" + new Date().getFullYear() + "-" + r.id.slice(0, 6).toUpperCase();
-  $("#date").textContent = new Date().toLocaleDateString("fr-FR", {day: "2-digit", month: "long", year: "numeric"});
   bulleConseiller(r.message);
   afficherProfil(r.fiche, r.connues, r.total, r.demandee, r.ignorees);
-  if (DEMO) { $("#demo").hidden = false; $("#demo-modeles").textContent = `Petit modèle : ${r.modeles.petit} · Gros LLM : ${r.modeles.gros} · Données : ${r.donnees}`; }
   $("#saisie").focus();
 }
 
@@ -684,7 +669,7 @@ async function envoyer(texte, url = "/api/message") {
         else if (e.t === "message") { finEcrit(attente); attente = null; bulleConseiller(e.v); }
         else if (e.t === "offres") {
           finEcrit(attente); attente = null; termine = true; afficherEtapes();
-          $("#statut").textContent = "Complet"; $("#statut").className = "statut complet"; $("#barre-prog").classList.add("plein");
+          $("#barre-prog").classList.add("plein");
           afficherOffres(e); if (e.offres.length) attente = ecrit();
         }
         else if (e.t === "jeton") { if (!bulle) { finEcrit(attente); attente = null; bulle = bulleConseiller(""); } bulle.textContent += e.v; defiler(); }

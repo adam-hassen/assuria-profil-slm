@@ -70,6 +70,40 @@ class Message(BaseModel):
     texte: str
 
 
+# --------------------------------------------------------------------------- journal dans le terminal
+COULEUR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+def _c(code: str, t: str) -> str:
+    return f"\033[{code}m{t}\033[0m" if COULEUR else t
+
+
+def journal_terminal(c: agent.Conversation, texte: str, avant: dict, question: str | None, passees_avant: set):
+    """Affiche dans le terminal ce que le client a écrit, ce que le petit modèle a extrait et la fiche à jour."""
+    j = c.journal[-1] if c.journal else {}
+    n, total = c.progression()
+    print("\n" + _c("1;34", f"── tour {len(c.journal)} " + "─" * 58))
+    print(f"{_c('2', 'question  ')}: {question or '-'}")
+    print(f"{_c('2', 'client    ')}: {texte}")
+    if j.get("reponse_brute"):
+        print(f"{_c('2', 'petit SLM ')}: {j.get('duree_s')} s  {j.get('reponse_brute', '').strip()[:300]}")
+    if j.get("erreur"):
+        print(f"{_c('2', 'erreur    ')}: {_c('31', str(j['erreur']))}")
+    print(f"{_c('2', 'retenu SLM')}: {json.dumps(j.get('retenu_du_petit_modele') or {}, ensure_ascii=False)}")
+    print(f"{_c('2', 'lu (règle)')}: {json.dumps(j.get('lu_dans_la_reponse') or {}, ensure_ascii=False)}")
+    print(f"{_c('2', 'fiche     ')}: {n}/{total}")
+    for champ, _ in agent.QUESTIONS:
+        v = c.fiche.get(champ)
+        if v is not None:
+            marque = _c("32", "+ ") if avant.get(champ) != v else "  "
+            print(f"   {marque}{champ:<32}{_c('1', str(v))}")
+        elif champ in c.ignorees:
+            print(f"   {_c('33', '- ') if champ not in passees_avant else '  '}{champ:<32}{_c('33', 'non communiqué')}")
+        elif champ == c.demandee:
+            print(f"   {_c('36', '? ')}{champ:<32}{_c('36', 'question suivante')}")
+    if c.critere:
+        print(f"   {'critère':<34}{_c('1', c.critere)}")
+    sys.stdout.flush()
+
+
 def suite_de_conversation(c: agent.Conversation, suite: dict, texte: str, avant=()):
     """Flux NDJSON envoyé à la page : fiche, coulisses, puis la question suivante ou les offres."""
     ligne = lambda d: json.dumps(d, ensure_ascii=False, default=str) + "\n"
@@ -141,6 +175,7 @@ def conversation(cid: str) -> agent.Conversation:
 def message(m: Message):
     c = conversation(m.id)
     texte = m.texte.strip()[:1000]
+    avant, passees, question = dict(c.fiche), set(c.ignorees), c.demandee
     if c.terminee:
         return StreamingResponse(terminee(), media_type="application/x-ndjson")
     if c.demandee == "critere":
@@ -150,6 +185,7 @@ def message(m: Message):
                           "lu_dans_la_reponse": {"critere": c.critere}, "erreur": None})
     else:
         suite = c.tour(texte, offres.deduire)
+    journal_terminal(c, texte, avant, question, passees)
     return StreamingResponse(suite_de_conversation(c, suite, texte), media_type="application/x-ndjson")
 
 
@@ -160,8 +196,10 @@ def recherche_plaque(m: Message):
     if c.terminee:
         return StreamingResponse(terminee(), media_type="application/x-ndjson")
     p = plaque.trouver_plaque(m.texte) or m.texte.strip().upper()[:12]
+    avant, passees = dict(c.fiche), set(c.ignorees)
     resultat = plaque.chercher(p, c.fiche.get("type_vehicule"))
     suite = c.vehicule_par_plaque(p, resultat)
+    journal_terminal(c, f"(plaque) {p} -> {'trouvée' if resultat['ok'] else 'non trouvée'}", avant, "marque_modele", passees)
     if resultat["ok"]:
         avant = [{"t": "vehicule", "plaque": p, **resultat["vehicule"]}]
         texte = f"Mon véhicule est une {resultat['vehicule']['nom']}."

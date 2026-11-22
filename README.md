@@ -200,6 +200,9 @@ QUESTIONS_LLM=1                        0 pour poser les questions prévues sans 
 REGCHECK_USER=...                      compte RegCheck (gratuit) pour retrouver le véhicule par sa plaque
 ```
 
+Terminal : à chaque message, le serveur affiche dans le terminal la question posée, la réponse du client, ce que le petit
+modèle a extrait, ce qui a été lu par les règles, et la fiche à jour (+ nouvelle valeur, - non communiqué, ? question suivante).
+
 Refus de répondre : le client peut dire « je préfère ne pas répondre » (ou cliquer sur le bouton) ; la question est
 passée, le dossier affiche « Non communiqué » et le prix utilise une valeur moyenne (l'estimation est signalée comme moins
 précise). Seul le type de véhicule est indispensable.

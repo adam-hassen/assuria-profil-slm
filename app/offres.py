@@ -192,7 +192,8 @@ def chercher(fiche: dict, n: int | None = None) -> tuple[list[dict], dict, str]:
     message = ""
     if choix.empty and pays != "France":
         choix = prix[(prix.pays == "France") & (prix.type == type_v) & (prix.formule == formule)]
-        message = f"Pas d'offre {type_v} en base pour « {pays} » : offres françaises affichées à titre d'exemple."
+        message = (f"Pas d'offre {type_v} en base pour « {pays} » : offres françaises affichées à titre d'exemple." if pays else
+                   "Pays non communiqué : offres françaises affichées à titre d'exemple.")
     if coef_bonus_malus(fiche) <= 1.0:  # les produits réservés aux conducteurs malussés ne concernent pas ce client
         choix = choix[~choix.produit.str.contains("malus", case=False, na=False)]
     coefs = coefficients(fiche, type_v)
