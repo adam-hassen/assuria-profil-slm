@@ -89,7 +89,9 @@ def chercher(plaque: str, type_vehicule: str | None = None) -> dict:
     for url in urls:
         try:
             donnees = _appel(url, plaque)
-        except Exception:  # plaque inconnue, crédits épuisés ou service injoignable : l'API répond par une erreur
+        except Exception as e:  # plaque inconnue, crédits épuisés ou service injoignable : l'API répond par une erreur
+            corps = e.read().decode("utf-8", "replace")[:300] if hasattr(e, "read") else ""
+            print(f"[plaque] {plaque} : {e} {corps}".strip())
             donnees = None
         if donnees:
             break

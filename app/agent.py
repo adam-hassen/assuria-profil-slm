@@ -525,7 +525,9 @@ class Conversation:
         try:
             brut = ollama_chat(self.slm, [{"role": "system", "content": CONSIGNE},
                                           {"role": "user", "content": message_utilisateur(self.texte())}],
-                               json_mode=True, options={"num_predict": 600})
+                               options={"num_predict": 600})
+            # pas de format="json" : la grammaire JSON d'Ollama force le modèle hors de ce qu'il a appris
+            # (il écrit le JSON sur une ligne) ; même réglage que evaluer.py
         except Exception as e:  # le conseiller continue avec les règles seules
             erreur = str(e)
         duree = time.perf_counter() - t0
