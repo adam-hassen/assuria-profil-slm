@@ -21,6 +21,6 @@ PARAMETER temperature 0
 PARAMETER num_ctx 4096
 EOF
 
-# q8_0 : presque sans perte, 2 fois plus petit que le modèle d'origine
-ollama create "$NOM" -f "$TRAVAIL/Modelfile" --quantize q8_0
+# Pas de quantification : on garde les poids tels quels (3 Go), pour mesurer le modèle sans perte
+ollama create "$NOM" -f "$TRAVAIL/Modelfile"
 echo "Prêt : ollama run $NOM"
