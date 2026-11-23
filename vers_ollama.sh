@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
 # Met le modèle fine-tuné dans Ollama, pour l'utiliser comme celui d'Ismail (même API, même évaluation).
 # Usage :  bash vers_ollama.sh <dossier_modele_fusionne> <nom_ollama>
+# Ollama importe directement les safetensors (architecture Qwen2) : pas besoin de llama.cpp ni de Python.
 set -euo pipefail
 
-SOURCE="${1:?dossier du modèle fusionné}"
+SOURCE="$(cd "${1:?dossier du modèle fusionné}" && pwd)"
 NOM="${2:-assuria-profil}"
 TRAVAIL="$(dirname "$SOURCE")"
 
-# Conversion en GGUF (format d'Ollama) avec llama.cpp, quantifié en q8_0 (presque sans perte, 2 fois plus petit)
-if [ ! -d "$TRAVAIL/llama.cpp" ]; then
-  git clone --depth 1 https://github.com/ggml-org/llama.cpp "$TRAVAIL/llama.cpp"
-fi
-python3 -m pip install --quiet -r "$TRAVAIL/llama.cpp/requirements/requirements-convert_hf_to_gguf.txt"
-python3 "$TRAVAIL/llama.cpp/convert_hf_to_gguf.py" "$SOURCE" --outtype q8_0 --outfile "$TRAVAIL/$NOM.gguf"
-
-# Le modèle lit le gabarit de conversation dans le GGUF ; température 0 pour une extraction stable
+# Gabarit ChatML de Qwen2.5, le même que pendant l'entraînement (le message système est toujours fourni)
 cat > "$TRAVAIL/Modelfile" <<EOF
-FROM ./$NOM.gguf
+FROM $SOURCE
+TEMPLATE """{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
 PARAMETER temperature 0
 PARAMETER num_ctx 4096
 EOF
 
-(cd "$TRAVAIL" && ollama create "$NOM" -f Modelfile)
+# q8_0 : presque sans perte, 2 fois plus petit que le modèle d'origine
+ollama create "$NOM" -f "$TRAVAIL/Modelfile" --quantize q8_0
 echo "Prêt : ollama run $NOM"
