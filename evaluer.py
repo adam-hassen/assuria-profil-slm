@@ -47,8 +47,11 @@ def charger_backend(backend: str, modele: str, url: str):
         import urllib.request
 
         def appeler(messages):
-            corps = json.dumps({"model": modele, "messages": messages, "stream": False,
-                                "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 512}}).encode()
+            corps = {"model": modele, "messages": messages, "stream": False,
+                     "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 512}}
+            if "qwen3" in modele:  # mode réflexion coupé, comme dans les apps (sinon très lent)
+                corps["think"] = False
+            corps = json.dumps(corps).encode()
             req = urllib.request.Request(f"{url}/api/chat", data=corps, headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=600) as r:
                 rep = json.loads(r.read())
