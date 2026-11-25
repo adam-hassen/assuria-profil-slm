@@ -154,7 +154,7 @@ def main() -> int:
     try:
         df = pd.read_parquet(a.profils)
     except (ImportError, FileNotFoundError, ValueError):  # sans pyarrow : la version CSV du même fichier
-        df = pd.read_csv(Path(a.profils).with_suffix(".csv"), low_memory=False)
+        df = pd.read_csv(Path(a.profils).with_suffix(".csv"), sep=";", encoding="utf-8-sig", low_memory=False)
     # l'agent d'Ismail ne couvre que la voiture en France : on prend ces profils pour les deux approches
     df = df[(df.pays_residence == "France") & (df.type_vehicule == "auto") & (df.age >= 18) & (df.pays_permis == "France")]
     tirage = df.sample(a.n, random_state=a.graine)
